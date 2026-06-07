@@ -77,10 +77,12 @@ enum EdgeSnapper {
         let bottom = Int(dragRectPx.maxY.rounded())
         guard right > left, bottom > top else { return dragRectPx }
 
-        let snappedLeft = snapVerticalEdge(at: left, yLo: top, yHi: bottom, buffer: buffer, cutoff: cutoff, searchRadius: searchRadius)
-        let snappedRight = snapVerticalEdge(at: right, yLo: top, yHi: bottom, buffer: buffer, cutoff: cutoff, searchRadius: searchRadius)
-        let snappedTop = snapHorizontalEdge(at: top, xLo: left, xHi: right, buffer: buffer, cutoff: cutoff, searchRadius: searchRadius)
-        let snappedBottom = snapHorizontalEdge(at: bottom, xLo: left, xHi: right, buffer: buffer, cutoff: cutoff, searchRadius: searchRadius)
+        // Each edge only searches *inward* (toward the rect center), so snapping
+        // can shrink the selection but never grow it past the dragged bounds.
+        let snappedLeft = snapVerticalEdge(at: left, yLo: top, yHi: bottom, buffer: buffer, cutoff: cutoff, searchRadius: searchRadius, inward: +1)
+        let snappedRight = snapVerticalEdge(at: right, yLo: top, yHi: bottom, buffer: buffer, cutoff: cutoff, searchRadius: searchRadius, inward: -1)
+        let snappedTop = snapHorizontalEdge(at: top, xLo: left, xHi: right, buffer: buffer, cutoff: cutoff, searchRadius: searchRadius, inward: +1)
+        let snappedBottom = snapHorizontalEdge(at: bottom, xLo: left, xHi: right, buffer: buffer, cutoff: cutoff, searchRadius: searchRadius, inward: -1)
 
         // Guard against snapping that inverts or collapses the rect.
         guard snappedRight > snappedLeft, snappedBottom > snappedTop else {
@@ -99,21 +101,26 @@ enum EdgeSnapper {
 
     /// Finds the x with the strongest mean horizontal gradient along the edge's
     /// y-span. Ties prefer the position closest to the original edge.
+    /// `inward` is the sign pointing toward the rect interior (+1 for the left
+    /// edge, -1 for the right edge). The search window covers only that side.
     private static func snapVerticalEdge(
         at edgeX: Int,
         yLo: Int,
         yHi: Int,
         buffer: LuminanceBuffer,
         cutoff: Int,
-        searchRadius: Int
+        searchRadius: Int,
+        inward: Int
     ) -> Int {
         let y0 = max(0, yLo)
         let y1 = min(buffer.height - 1, yHi)
         guard y1 >= y0 else { return edgeX }
         let yCount = y1 - y0 + 1
 
-        let x0 = max(1, edgeX - searchRadius)
-        let x1 = min(buffer.width - 2, edgeX + searchRadius)
+        let lo = inward >= 0 ? edgeX : edgeX - searchRadius
+        let hi = inward >= 0 ? edgeX + searchRadius : edgeX
+        let x0 = max(1, lo)
+        let x1 = min(buffer.width - 2, hi)
         guard x1 >= x0 else { return edgeX }
 
         var bestX = edgeX
@@ -134,21 +141,26 @@ enum EdgeSnapper {
 
     /// Finds the y with the strongest mean vertical gradient along the edge's
     /// x-span. Ties prefer the position closest to the original edge.
+    /// `inward` is the sign pointing toward the rect interior (+1 for the top
+    /// edge, -1 for the bottom edge). The search window covers only that side.
     private static func snapHorizontalEdge(
         at edgeY: Int,
         xLo: Int,
         xHi: Int,
         buffer: LuminanceBuffer,
         cutoff: Int,
-        searchRadius: Int
+        searchRadius: Int,
+        inward: Int
     ) -> Int {
         let x0 = max(0, xLo)
         let x1 = min(buffer.width - 1, xHi)
         guard x1 >= x0 else { return edgeY }
         let xCount = x1 - x0 + 1
 
-        let y0 = max(1, edgeY - searchRadius)
-        let y1 = min(buffer.height - 2, edgeY + searchRadius)
+        let lo = inward >= 0 ? edgeY : edgeY - searchRadius
+        let hi = inward >= 0 ? edgeY + searchRadius : edgeY
+        let y0 = max(1, lo)
+        let y1 = min(buffer.height - 2, hi)
         guard y1 >= y0 else { return edgeY }
 
         var bestY = edgeY
