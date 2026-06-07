@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 /// Floating parameter panel shown next to the snapped selection.
-/// - Threshold: PixelSnap-style small/medium/large segments → re-snaps.
-/// - Extend: 0–64 pt slider (also scroll-wheel) → live padding preview.
+/// - Snap: PixelSnap-style small/medium/large sensitivity → re-snaps.
+/// - Margin: 0–64 px even padding, 4px steps, slider + scroll-wheel + manual entry.
 /// Drives the overlay through callbacks; it does not observe back.
 struct SnapControlPanel: View {
     @State private var threshold: SnapThreshold
@@ -15,6 +15,7 @@ struct SnapControlPanel: View {
     let onCancel: () -> Void
 
     static let extendRange: ClosedRange<Double> = 0...64
+    static let extendStep: Double = 4
 
     init(
         threshold: SnapThreshold,
@@ -33,31 +34,34 @@ struct SnapControlPanel: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Picker("", selection: $threshold) {
-                Text("Small").tag(SnapThreshold.small)
-                Text("Medium").tag(SnapThreshold.medium)
-                Text("Large").tag(SnapThreshold.large)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .onChange(of: threshold) { _, new in onThresholdChange(new) }
-
-            HStack(spacing: 8) {
-                Image(systemName: "arrow.left.and.right.square")
-                    .foregroundStyle(.secondary)
-                Slider(value: $extendPx, in: Self.extendRange, step: 1)
-                    .onChange(of: extendPx) { _, new in onExtendChange(new) }
-                Text("\(Int(extendPx))px")
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(width: 36, alignment: .trailing)
-            }
-            .background(SnapScrollWheelView { delta in
-                let next = min(max(extendPx + delta, Self.extendRange.lowerBound), Self.extendRange.upperBound)
-                if next != extendPx {
-                    extendPx = next
-                    onExtendChange(next)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                rowLabel("Snap")
+                Picker("", selection: $threshold) {
+                    Text("Small").tag(SnapThreshold.small)
+                    Text("Medium").tag(SnapThreshold.medium)
+                    Text("Large").tag(SnapThreshold.large)
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            .help("Snap strength — Large snaps to fainter edges, Small only to crisp ones")
+
+            HStack(spacing: 10) {
+                rowLabel("Margin")
+                Slider(value: $extendPx, in: Self.extendRange, step: Self.extendStep)
+                TextField("", value: $extendPx, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 46)
+                    .multilineTextAlignment(.trailing)
+                Text("px")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .help("Even padding added around the snapped area")
+            .background(SnapScrollWheelView { delta in
+                let dir = delta > 0 ? Self.extendStep : -Self.extendStep
+                extendPx = (extendPx + dir).clampedToExtend
             })
 
             HStack {
@@ -73,12 +77,37 @@ struct SnapControlPanel: View {
             }
         }
         .padding(12)
-        .frame(width: 280)
+        .frame(width: 300)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
         )
+        .onChange(of: threshold) { _, new in onThresholdChange(new) }
+        .onChange(of: extendPx) { _, new in
+            // Single place that clamps + forwards, so slider / wheel / text entry
+            // never double-fire the callback.
+            let clamped = new.clampedToExtend
+            if clamped != new {
+                extendPx = clamped // re-enters with the clamped value
+            } else {
+                onExtendChange(clamped)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rowLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(width: 52, alignment: .leading)
+    }
+}
+
+private extension Double {
+    var clampedToExtend: Double {
+        Swift.min(Swift.max(self, SnapControlPanel.extendRange.lowerBound), SnapControlPanel.extendRange.upperBound)
     }
 }
 
