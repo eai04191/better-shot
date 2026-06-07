@@ -39,7 +39,18 @@ final class CaptureOrchestrator {
             await performOCR()
         case .colorPicker:
             await performColorPick()
+        case .snapCapture:
+            await captureAndProcess { try await self.snapCaptureToURL() }
         }
+    }
+
+    // MARK: - Snap Capture
+
+    /// Freezes the cursor display, runs the snap overlay, then writes the
+    /// even-padded real-pixel crop to a temp PNG for the shared capture pipeline.
+    private func snapCaptureToURL() async throws -> URL? {
+        // Implemented in a later commit.
+        return nil
     }
 
     // MARK: - Private

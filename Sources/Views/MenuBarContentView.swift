@@ -117,6 +117,10 @@ struct MenuBarContentView: View {
                 dismissAndRun(.window)
             }
 
+            TrayGridButton(title: "Snap", icon: "viewfinder.rectangular", shortcut: "\u{2318}E") {
+                dismissAndRun(.snapCapture)
+            }
+
             TrayGridButton(title: "Pick Color", icon: "eyedropper") {
                 dismissAndRun(.colorPicker)
             }

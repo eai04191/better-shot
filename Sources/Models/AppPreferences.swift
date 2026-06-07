@@ -11,6 +11,8 @@ enum AppPreferences {
     private static let exportFormatKey = "bs_exportFormat"
     private static let exportQualityKey = "bs_exportQuality"
     private static let selfTimerKey = "bs_selfTimerDelay"
+    private static let snapExtendKey = "bs_snapExtendPx"
+    private static let snapThresholdKey = "bs_snapThreshold"
 
     // MARK: - General
     static var saveDirectory: String {
@@ -73,6 +75,21 @@ enum AppPreferences {
         set { UserDefaults.standard.set(newValue.rawValue, forKey: selfTimerKey) }
     }
 
+    // MARK: - Snap Capture
+    /// Uniform padding added to the snapped rect, in logical points (pt).
+    static var snapExtendPx: Double {
+        get { UserDefaults.standard.object(forKey: snapExtendKey) as? Double ?? 16 }
+        set { UserDefaults.standard.set(newValue, forKey: snapExtendKey) }
+    }
+
+    static var snapThreshold: SnapThreshold {
+        get {
+            let raw = UserDefaults.standard.object(forKey: snapThresholdKey) as? Int ?? SnapThreshold.medium.rawValue
+            return SnapThreshold(rawValue: raw) ?? .medium
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: snapThresholdKey) }
+    }
+
     // MARK: - Default Beautifier Config
     static var defaultBeautifierConfig: BeautifierConfig {
         get {
@@ -110,6 +127,24 @@ enum ExportFormat: String, CaseIterable {
         switch self {
         case .png: return "png"
         case .jpeg: return "jpg"
+        }
+    }
+}
+
+/// Edge-snap sensitivity presets, mirroring PixelSnap's values.
+/// Higher raw value = more sensitive (snaps to fainter edges); `off` disables snapping.
+enum SnapThreshold: Int, CaseIterable, Codable {
+    case off = 0
+    case small = 14
+    case medium = 26
+    case large = 52
+
+    var label: String {
+        switch self {
+        case .off: return "Off"
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .large: return "Large"
         }
     }
 }

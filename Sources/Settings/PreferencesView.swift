@@ -580,6 +580,7 @@ struct CaptureSettingsTab: View {
                     ShortcutRow(label: "Fullscreen", action: .fullscreen)
                     ShortcutRow(label: "OCR Region", action: .ocr)
                     ShortcutRow(label: "Color Picker", action: .colorPicker)
+                    ShortcutRow(label: "Snap Capture", action: .snapCapture)
                 }
                 .id(shortcutResetID)
 
@@ -590,6 +591,7 @@ struct CaptureSettingsTab: View {
                         case .fullscreen: .defaultFullscreen
                         case .ocr: .defaultOCR
                         case .colorPicker: .defaultColorPicker
+                        case .snapCapture: .defaultSnapCapture
                         case .window: nil
                         }
                         if let def {
@@ -613,6 +615,7 @@ struct CaptureSettingsTab: View {
                         case .fullscreen: .defaultFullscreen
                         case .ocr: .defaultOCR
                         case .colorPicker: .defaultColorPicker
+                        case .snapCapture: .defaultSnapCapture
                         case .window: nil
                         }
                         if let def {
@@ -706,6 +709,7 @@ struct ShortcutRow: View {
         case .window: return ShortcutService.Shortcut(keyCode: 0, modifiers: 0, enabled: false)
         case .ocr: return .defaultOCR
         case .colorPicker: return .defaultColorPicker
+        case .snapCapture: return .defaultSnapCapture
         }
     }
 
