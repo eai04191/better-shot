@@ -1,5 +1,11 @@
 import XCTest
-@testable import BetterShot
+// EdgeSnapper.swift is compiled directly into this logic-test bundle (no host app),
+// so its internal symbols are visible without @testable import.
+
+// PixelSnap-style sensitivity presets (mirror of SnapThreshold's raw values).
+private let kSensitivitySmall = 14
+private let kSensitivityMedium = 26
+private let kSensitivityLarge = 52
 
 final class EdgeSnapperTests: XCTestCase {
 
@@ -33,7 +39,7 @@ final class EdgeSnapperTests: XCTestCase {
         return EdgeSnapper.LuminanceBuffer(pixels: pixels, width: width, height: height)
     }
 
-    private let strongCutoff = EdgeSnapper.cutoff(forSensitivity: SnapThreshold.medium.rawValue)
+    private let strongCutoff = EdgeSnapper.cutoff(forSensitivity: kSensitivityMedium)
 
     // MARK: - Inward-only snapping (regression for the "grows past the drag" bug)
 
@@ -104,9 +110,9 @@ final class EdgeSnapperTests: XCTestCase {
 
     func testSensitivityMapsInverselyToCutoff() {
         XCTAssertEqual(EdgeSnapper.cutoff(forSensitivity: 0), 0, "0 is Off")
-        let small = EdgeSnapper.cutoff(forSensitivity: SnapThreshold.small.rawValue)
-        let medium = EdgeSnapper.cutoff(forSensitivity: SnapThreshold.medium.rawValue)
-        let large = EdgeSnapper.cutoff(forSensitivity: SnapThreshold.large.rawValue)
+        let small = EdgeSnapper.cutoff(forSensitivity: kSensitivitySmall)
+        let medium = EdgeSnapper.cutoff(forSensitivity: kSensitivityMedium)
+        let large = EdgeSnapper.cutoff(forSensitivity: kSensitivityLarge)
         // Higher sensitivity → lower cutoff (more eager to snap).
         XCTAssertGreaterThan(small, medium)
         XCTAssertGreaterThan(medium, large)

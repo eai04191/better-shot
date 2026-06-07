@@ -41,10 +41,12 @@ targets:
   BetterShotTests:
     type: bundle.unit-test
     platform: macOS
+    # Logic tests with no host app (no TEST_HOST), so `make test` never launches
+    # BetterShot and never triggers Screen Recording / Accessibility prompts.
+    # The unit under test is compiled directly into the test bundle.
     sources:
       - Tests
-    dependencies:
-      - target: BetterShot
+      - Sources/Capture/EdgeSnapper.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.bettershot.tests
