@@ -37,3 +37,33 @@ targets:
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
     entitlements:
       path: Resources/BetterShot.entitlements
+
+  BetterShotTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests
+    dependencies:
+      - target: BetterShot
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bettershot.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  BetterShot:
+    build:
+      targets:
+        BetterShot: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - BetterShotTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

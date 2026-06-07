@@ -27,6 +27,7 @@
 		5DC7C7A2CF426EEB84D10515 /* MenuBarPopoverController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE6013043C27F30509A03C16 /* MenuBarPopoverController.swift */; };
 		6158A6FD21D793D955B2E0E9 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = C757566A38307689528E5A9E /* AppPreferences.swift */; };
 		615EE1453C9A7BDFD9248E09 /* ScreenCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4495302A23BB2192D91C5ED3 /* ScreenCapture.swift */; };
+		6531AC12A0A0B4965DD4BEEE /* EdgeSnapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 384683E2BABBD6FA5B1FA6FD /* EdgeSnapperTests.swift */; };
 		6682480DF2FDA028736D23D2 /* PreferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9822447B9DE8F15B9CC94381 /* PreferencesView.swift */; };
 		7492DCC25BAEBAFD914AAC6C /* EditorCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D72A7FD249FD623240D8735 /* EditorCanvasView.swift */; };
 		7A3EBC41CA7A6F9DE045888B /* AnnotationRedactionImageProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 147306FB804DB8E1D8FC83DA /* AnnotationRedactionImageProcessor.swift */; };
@@ -49,6 +50,16 @@
 		FE59D61ABB427B6DFC1D377A /* CaptureOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B626577BDFABF32D144DC8B /* CaptureOrchestrator.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		6F3A7E0911945A52BF5EEC2C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2B52F79D372EB35C81219180 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 61A826F3D9A89949C4B965D9;
+			remoteInfo = BetterShot;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		11DEB19CCE7ED49CF1136508 /* HistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryStore.swift; sourceTree = "<group>"; };
 		147306FB804DB8E1D8FC83DA /* AnnotationRedactionImageProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationRedactionImageProcessor.swift; sourceTree = "<group>"; };
@@ -56,6 +67,7 @@
 		1A8FF0E5AD713FC1D7E99DE7 /* BetterShotDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterShotDelegate.swift; sourceTree = "<group>"; };
 		2B95C7007292236807887D07 /* ToastWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastWindow.swift; sourceTree = "<group>"; };
 		30A1B248E007A26555495A52 /* DisplayFreezeCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayFreezeCapture.swift; sourceTree = "<group>"; };
+		384683E2BABBD6FA5B1FA6FD /* EdgeSnapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeSnapperTests.swift; sourceTree = "<group>"; };
 		3E1907B91A013BCA494AB08A /* ColorPickerOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorPickerOverlay.swift; sourceTree = "<group>"; };
 		4495302A23BB2192D91C5ED3 /* ScreenCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCapture.swift; sourceTree = "<group>"; };
 		4B626577BDFABF32D144DC8B /* CaptureOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureOrchestrator.swift; sourceTree = "<group>"; };
@@ -86,6 +98,7 @@
 		BE8FF05309B340FEAE149775 /* BackgroundStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundStyle.swift; sourceTree = "<group>"; };
 		C5558B01BB764A6621835508 /* CaptureRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureRecord.swift; sourceTree = "<group>"; };
 		C757566A38307689528E5A9E /* AppPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferences.swift; sourceTree = "<group>"; };
+		CC2020A1E3F2BCC6ED466835 /* BetterShotTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BetterShotTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D58300A37E3A994CE15987C5 /* BeautifierRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeautifierRenderer.swift; sourceTree = "<group>"; };
 		EE6013043C27F30509A03C16 /* MenuBarPopoverController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPopoverController.swift; sourceTree = "<group>"; };
 		F46A331394FBCD6FCFD29F62 /* BetterShot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BetterShot.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -141,6 +154,14 @@
 			path = Models;
 			sourceTree = "<group>";
 		};
+		4325399634CA03B6A830BC4C /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				384683E2BABBD6FA5B1FA6FD /* EdgeSnapperTests.swift */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
 		49CD1ABB4117999E05DAEA92 /* Capture */ = {
 			isa = PBXGroup;
 			children = (
@@ -162,6 +183,7 @@
 			isa = PBXGroup;
 			children = (
 				F46A331394FBCD6FCFD29F62 /* BetterShot.app */,
+				CC2020A1E3F2BCC6ED466835 /* BetterShotTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -199,6 +221,7 @@
 				A9FD147E96AE29FF1E11357F /* Backgrounds */,
 				10094F5FED8623DFE2FA9F1D /* Resources */,
 				C750A8B0B7E68485E0FF536F /* Sources */,
+				4325399634CA03B6A830BC4C /* Tests */,
 				4B049A4676B9CFEECB1A3DF6 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -258,6 +281,24 @@
 			productReference = F46A331394FBCD6FCFD29F62 /* BetterShot.app */;
 			productType = "com.apple.product-type.application";
 		};
+		FBF1717A14DEB6449A59C803 /* BetterShotTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1BFD387488962EC060D9A00E /* Build configuration list for PBXNativeTarget "BetterShotTests" */;
+			buildPhases = (
+				E4A93C39F90C92331AC1169F /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BA05A0AA7B40EBE77922A41A /* PBXTargetDependency */,
+			);
+			name = BetterShotTests;
+			packageProductDependencies = (
+			);
+			productName = BetterShotTests;
+			productReference = CC2020A1E3F2BCC6ED466835 /* BetterShotTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -284,6 +325,7 @@
 			projectRoot = "";
 			targets = (
 				61A826F3D9A89949C4B965D9 /* BetterShot */,
+				FBF1717A14DEB6449A59C803 /* BetterShotTests */,
 			);
 		};
 /* End PBXProject section */
@@ -346,9 +388,42 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E4A93C39F90C92331AC1169F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6531AC12A0A0B4965DD4BEEE /* EdgeSnapperTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		BA05A0AA7B40EBE77922A41A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 61A826F3D9A89949C4B965D9 /* BetterShot */;
+			targetProxy = 6F3A7E0911945A52BF5EEC2C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		01CA317C6E389AA374B39AEB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.bettershot.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BetterShot.app/Contents/MacOS/BetterShot";
+			};
+			name = Debug;
+		};
 		31BAFDED17709DBDF81651E4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -403,6 +478,23 @@
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		4F796B3EA0DA0A6489B7B521 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.bettershot.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BetterShot.app/Contents/MacOS/BetterShot";
 			};
 			name = Release;
 		};
@@ -507,6 +599,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		1BFD387488962EC060D9A00E /* Build configuration list for PBXNativeTarget "BetterShotTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				01CA317C6E389AA374B39AEB /* Debug */,
+				4F796B3EA0DA0A6489B7B521 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		B653F2DD902FE6BD261B2987 /* Build configuration list for PBXNativeTarget "BetterShot" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
