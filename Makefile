@@ -21,6 +21,19 @@ VERSION     := $(shell python3 -c "import json; print(json.load(open('version.js
 DMG_NAME     = BetterShot-$(VERSION).dmg
 DMG_DIR      = release
 
+# Optional fixed local code-signing identity. When empty (default), the Debug
+# build stays ad-hoc signed. Set it to keep a stable designated requirement so
+# macOS keeps Screen Recording / Accessibility grants across rebuilds:
+#   make run BS_SIGN_ID="BetterShot Local"
+# Hardened runtime is disabled for the signed Debug build: ad-hoc builds get it
+# auto-disabled, but a self-signed identity (no Team ID) would otherwise trip
+# Library Validation and fail to load the Xcode debug dylib at launch.
+BS_SIGN_ID  ?=
+SIGN_FLAGS  :=
+ifneq ($(strip $(BS_SIGN_ID)),)
+SIGN_FLAGS  := CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$(BS_SIGN_ID)" ENABLE_HARDENED_RUNTIME=NO
+endif
+
 .PHONY: build release run dmg clean lint test-build version ship help
 
 help: ## Show this help
@@ -32,6 +45,7 @@ build: ## Debug build
 		-scheme $(SCHEME) \
 		-configuration $(CONFIG_DEBUG) \
 		-derivedDataPath $(DERIVED_DIR) \
+		$(SIGN_FLAGS) \
 		build 2>&1 | tail -3
 	@echo "==> $(APP_DEBUG)"
 
