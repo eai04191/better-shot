@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import SwiftUI
 
 /// Coordinates the full capture pipeline: hide window -> capture -> sound -> preview/editor.
@@ -52,6 +53,18 @@ final class CaptureOrchestrator {
     /// Beautify, save, copyAfterSave clipboard, preview) is handled by
     /// `captureAndProcess` exactly like every other capture.
     private func snapCaptureToURL() async throws -> URL? {
+        // Without Screen Recording permission the freeze would be black; bail out
+        // with guidance instead of flashing a dark full-screen overlay.
+        guard CGPreflightScreenCaptureAccess() else {
+            _ = CGRequestScreenCaptureAccess() // shows the system prompt on first denial
+            ToastWindow.shared.show(
+                title: "Screen Recording required",
+                message: "Allow BetterShot in System Settings → Privacy & Security → Screen Recording, then try again.",
+                systemIcon: "exclamationmark.triangle"
+            )
+            return nil
+        }
+
         guard let frozen = await DisplayFreezeCapture.captureCursorDisplay() else { return nil }
         let overlay = SnapCaptureOverlay(frozenImage: frozen.image, screen: frozen.screen)
         guard let cropped = await overlay.run() else { return nil }
