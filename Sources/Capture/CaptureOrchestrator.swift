@@ -48,9 +48,26 @@ final class CaptureOrchestrator {
 
     /// Freezes the cursor display, runs the snap overlay, then writes the
     /// even-padded real-pixel crop to a temp PNG for the shared capture pipeline.
+    /// Returns nil on cancel. The rest of the flow (sound, history import,
+    /// Beautify, save, copyAfterSave clipboard, preview) is handled by
+    /// `captureAndProcess` exactly like every other capture.
     private func snapCaptureToURL() async throws -> URL? {
-        // Implemented in a later commit.
-        return nil
+        guard let frozen = await DisplayFreezeCapture.captureCursorDisplay() else { return nil }
+        let overlay = SnapCaptureOverlay(frozenImage: frozen.image, screen: frozen.screen)
+        guard let cropped = await overlay.run() else { return nil }
+        return writeTempPNG(cropped)
+    }
+
+    private func writeTempPNG(_ image: CGImage) -> URL? {
+        let dir = NSTemporaryDirectory()
+        let stamp = Int(Date().timeIntervalSince1970 * 1000)
+        let url = URL(fileURLWithPath: "\(dir)bettershot_snap_\(stamp).png")
+        guard let destination = CGImageDestinationCreateWithURL(
+            url as CFURL, "public.png" as CFString, 1, nil
+        ) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return url
     }
 
     // MARK: - Private
