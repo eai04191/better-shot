@@ -80,7 +80,7 @@ private final class SnapSelectionView: NSView {
     private let frozenImage: CGImage
     private let displayImage: NSImage
     private let scale: CGFloat
-    private let luminance: EdgeSnapper.LuminanceBuffer?
+    private let luminance: ContentSnapper.LuminanceBuffer?
     private let onConfirm: (CGImage) -> Void
     private let onCancel: () -> Void
 
@@ -111,7 +111,7 @@ private final class SnapSelectionView: NSView {
             cgImage: frozenImage,
             size: NSSize(width: CGFloat(frozenImage.width) / scale, height: CGFloat(frozenImage.height) / scale)
         )
-        self.luminance = EdgeSnapper.makeLuminanceBuffer(from: frozenImage)
+        self.luminance = ContentSnapper.makeLuminanceBuffer(from: frozenImage)
         self.onConfirm = onConfirm
         self.onCancel = onCancel
         super.init(frame: .zero)
@@ -324,8 +324,8 @@ private final class SnapSelectionView: NSView {
             snappedRectPx = rough.intersection(imageBoundsPx).integral
             return
         }
-        let cutoff = EdgeSnapper.cutoff(forSensitivity: threshold.rawValue)
-        let snapped = EdgeSnapper.snap(dragRectPx: rough, in: buffer, cutoff: cutoff)
+        let bgThreshold = ContentSnapper.threshold(forSensitivity: threshold.rawValue)
+        let snapped = ContentSnapper.snap(dragRectPx: rough, in: buffer, threshold: bgThreshold)
         snappedRectPx = snapped.intersection(imageBoundsPx).integral
     }
 

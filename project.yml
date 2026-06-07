@@ -46,7 +46,7 @@ targets:
     # The unit under test is compiled directly into the test bundle.
     sources:
       - Tests
-      - Sources/Capture/EdgeSnapper.swift
+      - Sources/Capture/ContentSnapper.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.bettershot.tests
