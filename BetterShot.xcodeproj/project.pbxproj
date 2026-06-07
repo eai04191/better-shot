@@ -16,10 +16,12 @@
 		1881BC67C7A74FEC212DA8EC /* EditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7307DAB0AA0DDC8AB161E476 /* EditorModel.swift */; };
 		1A1E3F326A80457D2550D7CD /* DisplayFreezeCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30A1B248E007A26555495A52 /* DisplayFreezeCapture.swift */; };
 		1CBDB240923B9F176D454CEA /* Backgrounds in Resources */ = {isa = PBXBuildFile; fileRef = A9FD147E96AE29FF1E11357F /* Backgrounds */; };
+		289271088B2EDF3DB453C7FC /* SnapControlPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F51091148261672850EF2DE /* SnapControlPanel.swift */; };
 		2D2CFBFFDA6767FA9FB2C2E9 /* BeautifierRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58300A37E3A994CE15987C5 /* BeautifierRenderer.swift */; };
 		3933094B835D8EF2F5F1EABB /* RegionSelectionOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 868F0E1B6C8FC7DF50B4A79B /* RegionSelectionOverlay.swift */; };
 		3AA2E443AA076D9AA4BCFFA9 /* PinnedScreenshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B3D8697A2AEA9FD3527BA3D /* PinnedScreenshot.swift */; };
 		3F10E4A10ECE3E37549B99BA /* EditorWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5FC4CD374D6C387202BB773 /* EditorWindowView.swift */; };
+		473ED679BCF63058E54BF143 /* SnapCaptureOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0687350EE969FEE3D060EF5 /* SnapCaptureOverlay.swift */; };
 		4A1FAEA24652DD6884903551 /* EdgeSnapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B802B543B6710089AA1FAE68 /* EdgeSnapper.swift */; };
 		52B62D47D9FDBE73F0FEDB1A /* ToastWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B95C7007292236807887D07 /* ToastWindow.swift */; };
 		5DC7C7A2CF426EEB84D10515 /* MenuBarPopoverController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE6013043C27F30509A03C16 /* MenuBarPopoverController.swift */; };
@@ -71,9 +73,11 @@
 		94D707990F014D8BE452023A /* BundledBackgrounds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledBackgrounds.swift; sourceTree = "<group>"; };
 		9822447B9DE8F15B9CC94381 /* PreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesView.swift; sourceTree = "<group>"; };
 		9D72A7FD249FD623240D8735 /* EditorCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorCanvasView.swift; sourceTree = "<group>"; };
+		9F51091148261672850EF2DE /* SnapControlPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapControlPanel.swift; sourceTree = "<group>"; };
 		A9FD147E96AE29FF1E11357F /* Backgrounds */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Backgrounds; path = Resources/Backgrounds; sourceTree = SOURCE_ROOT; };
 		AE1AF97C84324A8DA1B6948D /* PreviewOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewOverlay.swift; sourceTree = "<group>"; };
 		AE87F338892DCBFEA8FD7BDA /* MenuBarContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarContentView.swift; sourceTree = "<group>"; };
+		B0687350EE969FEE3D060EF5 /* SnapCaptureOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapCaptureOverlay.swift; sourceTree = "<group>"; };
 		B350EE68E3E974004660FC0A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B5FC4CD374D6C387202BB773 /* EditorWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorWindowView.swift; sourceTree = "<group>"; };
 		B802B543B6710089AA1FAE68 /* EdgeSnapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeSnapper.swift; sourceTree = "<group>"; };
@@ -147,6 +151,8 @@
 				B802B543B6710089AA1FAE68 /* EdgeSnapper.swift */,
 				868F0E1B6C8FC7DF50B4A79B /* RegionSelectionOverlay.swift */,
 				4495302A23BB2192D91C5ED3 /* ScreenCapture.swift */,
+				B0687350EE969FEE3D060EF5 /* SnapCaptureOverlay.swift */,
+				9F51091148261672850EF2DE /* SnapControlPanel.swift */,
 				61D783D3556AA5344DAFDC63 /* WindowPickerOverlay.swift */,
 			);
 			path = Capture;
@@ -333,6 +339,8 @@
 				615EE1453C9A7BDFD9248E09 /* ScreenCapture.swift in Sources */,
 				C46DD6DBAA95F563F2EC6E4E /* SettingsWindowController.swift in Sources */,
 				8782829F9AD2E1BE2B796AC7 /* ShortcutService.swift in Sources */,
+				473ED679BCF63058E54BF143 /* SnapCaptureOverlay.swift in Sources */,
+				289271088B2EDF3DB453C7FC /* SnapControlPanel.swift in Sources */,
 				52B62D47D9FDBE73F0FEDB1A /* ToastWindow.swift in Sources */,
 				174D457C94F688B0DDD75E64 /* WindowPickerOverlay.swift in Sources */,
 			);
