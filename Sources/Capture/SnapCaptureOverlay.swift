@@ -14,6 +14,7 @@ final class SnapCaptureOverlay {
     private var window: NSWindow?
     private var continuation: CheckedContinuation<CGImage?, Never>?
     private var didFinish = false
+    private var previousApp: NSRunningApplication?
 
     init(frozenImage: CGImage, screen: NSScreen) {
         self.frozenImage = frozenImage
@@ -21,7 +22,10 @@ final class SnapCaptureOverlay {
     }
 
     func run() async -> CGImage? {
-        await withCheckedContinuation { cont in
+        // Remember who had focus so we can restore it after the overlay (which
+        // activates BetterShot) goes away.
+        previousApp = NSWorkspace.shared.frontmostApplication
+        return await withCheckedContinuation { cont in
             self.continuation = cont
             show()
         }
@@ -61,6 +65,11 @@ final class SnapCaptureOverlay {
         didFinish = true
         window?.orderOut(nil)
         window = nil
+        // Return focus to the previously frontmost app (unless it was us).
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        if let previousApp, previousApp.processIdentifier != selfPID {
+            previousApp.activate()
+        }
         continuation?.resume(returning: crop)
         continuation = nil
     }
