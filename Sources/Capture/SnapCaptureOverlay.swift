@@ -247,12 +247,15 @@ private final class SnapSelectionView: NSView {
             .foregroundColor: NSColor.white,
         ]
         let labelSize = label.size(withAttributes: attrs)
-        let labelRect = CGRect(
-            x: sel.midX - labelSize.width / 2 - 6,
-            y: sel.minY - labelSize.height - 8,
-            width: labelSize.width + 12,
-            height: labelSize.height + 4
-        )
+        let boxW = labelSize.width + 12
+        let boxH = labelSize.height + 4
+        // Prefer just above the selection (the parameter panel sits below it, so
+        // this avoids overlap); fall back below if it would clip off the top.
+        let aboveY = sel.maxY + 8
+        let belowY = sel.minY - boxH - 8
+        let y = (aboveY + boxH <= bounds.maxY - 4) ? aboveY : belowY
+        let x = min(max(sel.midX - boxW / 2, 4), bounds.maxX - boxW - 4)
+        let labelRect = CGRect(x: x, y: y, width: boxW, height: boxH)
         NSColor.black.withAlphaComponent(0.7).setFill()
         NSBezierPath(roundedRect: labelRect, xRadius: 4, yRadius: 4).fill()
         label.draw(at: NSPoint(x: labelRect.minX + 6, y: labelRect.minY + 2), withAttributes: attrs)
