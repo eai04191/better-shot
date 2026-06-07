@@ -28,6 +28,10 @@ enum DisplayFreezeCapture {
         }
 
         let scale = screen.backingScaleFactor
+
+        if let image = captureViaCGDisplay(displayID: displayID) {
+            return Frozen(image: image, screen: screen)
+        }
         if let image = await captureViaScreenCaptureKit(displayID: displayID, scale: scale) {
             return Frozen(image: image, screen: screen)
         }
@@ -35,6 +39,14 @@ enum DisplayFreezeCapture {
             return Frozen(image: image, screen: screen)
         }
         return nil
+    }
+
+    // MARK: - Fastest: CGDisplayCreateImage (synchronous, no SCShareableContent)
+
+    // Deprecated since macOS 14 but still works on 15 and avoids the ~73ms
+    // SCShareableContent.current overhead. SCK below is the supported fallback.
+    private nonisolated static func captureViaCGDisplay(displayID: CGDirectDisplayID) -> CGImage? {
+        CGDisplayCreateImage(displayID)
     }
 
     // MARK: - Primary: ScreenCaptureKit (non-deprecated, in-process)
@@ -54,7 +66,6 @@ enum DisplayFreezeCapture {
             config.height = Int(CGFloat(display.height) * scale)
             config.showsCursor = false
             config.scalesToFit = false
-            config.captureResolution = .best
 
             return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
         } catch {

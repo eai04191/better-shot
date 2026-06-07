@@ -80,7 +80,10 @@ private final class SnapSelectionView: NSView {
     private let frozenImage: CGImage
     private let displayImage: NSImage
     private let scale: CGFloat
-    private let luminance: ContentSnapper.LuminanceBuffer?
+    // Built lazily on first snap (mouseUp), not during init, so the overlay
+    // appears immediately instead of waiting for the grayscale pass on a 6K image.
+    private lazy var luminance: ContentSnapper.LuminanceBuffer? =
+        ContentSnapper.makeLuminanceBuffer(from: frozenImage)
     private let onConfirm: (CGImage) -> Void
     private let onCancel: () -> Void
 
@@ -111,7 +114,6 @@ private final class SnapSelectionView: NSView {
             cgImage: frozenImage,
             size: NSSize(width: CGFloat(frozenImage.width) / scale, height: CGFloat(frozenImage.height) / scale)
         )
-        self.luminance = ContentSnapper.makeLuminanceBuffer(from: frozenImage)
         self.onConfirm = onConfirm
         self.onCancel = onCancel
         super.init(frame: .zero)
