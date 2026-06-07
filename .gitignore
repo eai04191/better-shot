@@ -12,6 +12,7 @@ xcuserdata/
 
 # Swift Package Manager
 .build/
+.build-test/
 Package.resolved
 
 # macOS

@@ -15,6 +15,7 @@ PROJECT      = BetterShot.xcodeproj
 CONFIG_DEBUG = Debug
 CONFIG_REL   = Release
 DERIVED_DIR  = .build
+TEST_DIR     = .build-test
 APP_DEBUG    = $(DERIVED_DIR)/Build/Products/$(CONFIG_DEBUG)/$(SCHEME).app
 APP_RELEASE  = $(DERIVED_DIR)/Build/Products/$(CONFIG_REL)/$(SCHEME).app
 VERSION     := $(shell python3 -c "import json; print(json.load(open('version.json'))['version'])")
@@ -34,7 +35,7 @@ ifneq ($(strip $(BS_SIGN_ID)),)
 SIGN_FLAGS  := CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$(BS_SIGN_ID)" ENABLE_HARDENED_RUNTIME=NO
 endif
 
-.PHONY: build release run dmg clean lint test-build version ship help
+.PHONY: build release run dmg clean lint test test-build version ship help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -90,6 +91,14 @@ lint: ## Check for compiler warnings
 		-configuration $(CONFIG_DEBUG) \
 		-derivedDataPath $(DERIVED_DIR) \
 		build 2>&1 | grep -E "warning:|error:" || echo "No warnings."
+
+test: ## Run unit tests (isolated derived data; keeps the run/build app intact)
+	@echo "==> Running tests..."
+	@xcodebuild test -project $(PROJECT) \
+		-scheme $(SCHEME) \
+		-configuration $(CONFIG_DEBUG) \
+		-derivedDataPath $(TEST_DIR) \
+		-destination 'platform=macOS' 2>&1 | tail -5
 
 test-build: clean release ## Full clean + release build
 	@echo "==> Test build passed."
