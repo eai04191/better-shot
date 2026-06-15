@@ -34,7 +34,11 @@ final class ScreenCapture {
         defer { isCapturing = false }
 
         let tempPath = makeTempPath()
-        let success = await runScreencapture(["-s", "-x", "-t", "png", tempPath])
+        // `-i` (not `-s`) so the Space key toggles selection ↔ window mode,
+        // matching native cmd+shift+4. `-s` is mouse-selection-only.
+        // `-o` strips the window shadow when the user toggles to window mode,
+        // matching captureWindow's default behavior.
+        let success = await runScreencapture(["-i", "-o", "-x", "-t", "png", tempPath])
         guard success, FileManager.default.fileExists(atPath: tempPath) else { return nil }
         return URL(fileURLWithPath: tempPath)
     }
