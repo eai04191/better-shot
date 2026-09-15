@@ -51,6 +51,10 @@ final class CaptureOrchestrator {
         switch action {
         case .region, .timedRegion, .regionCopy, .regionSave, .regionEdit, .regionPin:
             await captureAndProcess(action: action) { try await ScreenCapture.shared.captureRegion() }
+        case .snapCapture:
+            await captureAndProcess(action: action) {
+                try await self.snapCaptureToURL()
+            }
         case .fullscreen:
             await captureAndProcess { try await ScreenCapture.shared.captureFullscreen() }
         case .window:
@@ -61,6 +65,27 @@ final class CaptureOrchestrator {
             await performColorPick()
         default:
             break
+        }
+    }
+
+    private func snapCaptureToURL() async throws -> URL? {
+        guard CGPreflightScreenCaptureAccess() else {
+            _ = CGRequestScreenCaptureAccess()
+            ToastWindow.shared.show(title: "Screen Recording required",
+                message: "Allow BetterShot in System Settings → Privacy & Security → Screen Recording, then try again.",
+                systemIcon: "exclamationmark.triangle", on: captureScreen)
+            return nil
+        }
+        do {
+            let frozen = try await DisplayFreezeCapture.capture(on: captureScreen)
+            captureScreen = frozen.screen
+            let overlay = SnapCaptureOverlay(frozenImage: frozen.image, screen: frozen.screen)
+            guard let cropped = await overlay.run() else { return nil }
+            return try SnapImageFile.writeTemporaryPNG(cropped)
+        } catch {
+            ToastWindow.shared.show(title: "Couldn’t capture selection", message: error.localizedDescription,
+                systemIcon: "exclamationmark.triangle", on: captureScreen)
+            throw error
         }
     }
 

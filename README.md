@@ -10,6 +10,19 @@ editor, native on macOS. An open-source alternative to CleanShot X and Loom
 with no subscription, no account, and no telemetry. Nothing leaves your Mac
 unless you share it, and shares go to storage you own.
 
+## Fork: Snap Capture
+
+This fork adds **Snap Capture** (`⌘⇧E`, customizable in Settings > Shortcuts).
+Drag around content, adjust snap sensitivity and a uniform 0–64 pt margin
+(4 pt slider steps or an exact typed value), then press Return or Capture.
+The margin uses actual screen pixels; no background is invented. Escape cancels.
+The pointer's display is frozen before selection and focus returns to the previous app.
+
+Snap captures use the same private capture deck, clipboard, Save, Pin, and image
+editor pipeline as other screenshots. Copy does not export a file to your save folder.
+The fork is based on upstream main `9054ab5e5e64449ac92c4a63ae70aff9c819c288`.
+See [migration and rollback](docs/fork-migration.md) for preserved settings and build precautions.
+
 ## Features
 
 - **Screenshots:** region, fullscreen, and window capture with macOS's native selector. OCR text extraction and hex color picker included.

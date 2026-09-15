@@ -7,7 +7,7 @@ extension ShortcutService {
         let screen = ActiveDisplayResolver.activeScreen(preferPointer: true)
         let manager = ScreenRecordingManager.shared
         switch action {
-        case .region, .fullscreen, .window, .ocr, .ocrSingleLine, .colorPicker,
+        case .snapCapture, .region, .fullscreen, .window, .ocr, .ocrSingleLine, .colorPicker,
              .timedRegion, .regionCopy, .regionSave, .regionEdit, .regionPin:
             await CaptureOrchestrator.shared.performCapture(action, on: screen)
         case .previousRegion:

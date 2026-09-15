@@ -28,6 +28,18 @@ enum AppPreferences {
     private static let lastRegionRectKey = "bs_lastRegionRect"
     private static let captureRegionOnReleaseKey = "bs_captureRegionOnRelease"
 
+    // MARK: - Snap Capture
+    // The legacy key says Px, but the stored margin has always been logical points.
+    static var snapExtendPx: Double {
+        get { UserDefaults.standard.object(forKey: "bs_snapExtendPx") as? Double ?? 16 }
+        set { UserDefaults.standard.set(newValue, forKey: "bs_snapExtendPx") }
+    }
+
+    static var snapThreshold: SnapThreshold {
+        get { SnapThreshold(rawValue: UserDefaults.standard.object(forKey: "bs_snapThreshold") as? Int ?? 26) ?? .medium }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "bs_snapThreshold") }
+    }
+
     // MARK: - Appearance
     static var appearance: AppAppearance {
         get {
@@ -376,4 +388,12 @@ enum SelfTimerDelay: Int, CaseIterable {
         default: return "\(rawValue)s"
         }
     }
+}
+
+/// Higher sensitivity includes fainter content; zero disables snapping.
+enum SnapThreshold: Int, CaseIterable, Codable {
+    case off = 0
+    case small = 14
+    case medium = 26
+    case large = 52
 }

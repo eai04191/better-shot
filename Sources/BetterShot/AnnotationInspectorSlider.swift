@@ -163,6 +163,7 @@ struct InspectorSlider: View {
     @Binding var value: CGFloat
     let range: ClosedRange<CGFloat>
     let format: InspectorValueFormat
+    let trackStep: CGFloat?
     var onEditingChanged: (Bool) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -185,12 +186,14 @@ struct InspectorSlider: View {
         value: Binding<CGFloat>,
         range: ClosedRange<CGFloat>,
         format: InspectorValueFormat,
+        trackStep: CGFloat? = nil,
         onEditingChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         self.title = title
         self._value = value
         self.range = range
         self.format = format
+        self.trackStep = trackStep
         self.onEditingChanged = onEditingChanged
     }
 
@@ -420,7 +423,8 @@ struct InspectorSlider: View {
         let progress = min(max(locationX / width, 0), 1)
         let proposedValue = range.lowerBound
             + progress * (range.upperBound - range.lowerBound)
-        setValue(proposedValue)
+        let stepped = trackStep.map { (proposedValue / $0).rounded() * $0 } ?? proposedValue
+        setValue(stepped)
     }
 
     private func adjustValue(by delta: CGFloat) {

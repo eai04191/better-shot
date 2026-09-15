@@ -37,6 +37,7 @@ final class ShortcutService {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        SnapShortcutMigration.migrate(defaults: defaults)
         Self.migrateCaptureShortcuts(defaults: defaults)
     }
 
@@ -55,6 +56,7 @@ final class ShortcutService {
         var modifiers: UInt32
         var enabled: Bool
 
+        static let defaultSnapCapture = Shortcut(keyCode: UInt32(kVK_ANSI_E), modifiers: UInt32(cmdKey | shiftKey), enabled: true)
         static let defaultRegion = Shortcut(keyCode: UInt32(kVK_ANSI_4), modifiers: UInt32(cmdKey | shiftKey), enabled: true)
         static let defaultFullscreen = Shortcut(keyCode: UInt32(kVK_ANSI_3), modifiers: UInt32(cmdKey | shiftKey), enabled: true)
         static let defaultOCR = Shortcut(keyCode: UInt32(kVK_ANSI_O), modifiers: UInt32(cmdKey | shiftKey), enabled: true)

@@ -116,6 +116,10 @@ struct MenuBarContentView: View {
                 dismissAndRun(.window)
             }
 
+            TrayGridButton(title: "Snap", icon: "viewfinder.rectangular", action: .snapCapture) {
+                dismissAndRun(.snapCapture)
+            }
+
             TrayGridButton(title: "Record", icon: "record.circle", action: .recordingOptions) {
                 dismissPopover()
                 RecordingBarPresenter.shared.showPicker(recordingOptions: true)

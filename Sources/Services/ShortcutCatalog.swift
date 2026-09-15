@@ -41,6 +41,7 @@ extension ShortcutService {
         case region = 1
         case fullscreen = 2
         case window = 3
+        case snapCapture = 26
         case previousRegion = 20
         case timedRegion = 21
         case regionCopy = 22
@@ -119,6 +120,7 @@ extension ShortcutService {
             case .region: "Capture Region"
             case .fullscreen: "Capture Fullscreen"
             case .window: "Capture Window"
+            case .snapCapture: "Snap Capture"
             case .previousRegion: "Capture Previous Region"
             case .timedRegion: "Capture Region with Timer"
             case .regionCopy: "Capture Region & Copy"
@@ -190,7 +192,7 @@ extension ShortcutService {
         var group: Group {
             switch self {
             case .recording, .mediaGallery, .restoreLastCapture, .pinLastCapture, .openImage, .openSettings, .unpinAll: .general
-            case .region, .fullscreen, .window, .previousRegion, .timedRegion, .regionCopy, .regionSave, .regionEdit, .regionPin: .screenshots
+            case .snapCapture, .region, .fullscreen, .window, .previousRegion, .timedRegion, .regionCopy, .regionSave, .regionEdit, .regionPin: .screenshots
             case .ocr, .ocrSingleLine, .colorPicker: .ocr
             case .recordingOptions, .recordArea, .stopRecording, .pauseRecording, .restartRecording, .discardRecording: .recording
             case .togglePreviews, .savePreviews, .closePreviews: .preview
@@ -210,6 +212,7 @@ extension ShortcutService {
 
         var defaultShortcut: Shortcut? {
             switch self {
+            case .snapCapture: .defaultSnapCapture
             case .region: .defaultRegion
             case .fullscreen: .defaultFullscreen
             case .ocr: .defaultOCR
