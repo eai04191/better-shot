@@ -7,52 +7,55 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private var window: NSWindow?
 
+    var hasOpenWindow: Bool { window != nil }
+
     private override init() { super.init() }
 
-    func open() {
+    func open(on screen: NSScreen? = nil, section: SettingsSection? = nil) {
         if let existing = window, existing.isVisible {
+            if let section {
+                existing.contentViewController = NSHostingController(rootView: PreferencesView(selection: section))
+            }
             existing.orderFrontRegardless()
             NSApp.activate(ignoringOtherApps: true)
             existing.makeKeyAndOrderFront(nil)
             return
         }
 
-        let hostingView = NSHostingView(rootView: PreferencesView())
+        let controller = NSHostingController(rootView: PreferencesView(selection: section ?? .general))
 
-        let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 680, height: 560),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        win.contentView = hostingView
+        let win = NSWindow(contentViewController: controller)
+        win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        win.setContentSize(NSSize(width: 820, height: 660))
+        win.minSize = NSSize(width: 780, height: 620)
+        win.titlebarAppearsTransparent = true
         win.title = "Settings"
         win.isReleasedWhenClosed = false
         win.delegate = self
         win.collectionBehavior = [.transient, .moveToActiveSpace]
 
-        centerOnCurrentScreen(win)
+        centerOnCurrentScreen(win, preferring: screen)
 
         window = win
 
         win.orderFrontRegardless()
-        NSApp.setActivationPolicy(.regular)
+        AppActivationPolicy.enter()
         win.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func close() {
+        window?.performClose(nil)
     }
 
     func windowWillClose(_ notification: Notification) {
         window = nil
-        DispatchQueue.main.async {
-            if EditorWindowController.shared.hasOpenWindows == false {
-                NSApp.setActivationPolicy(.accessory)
-            }
-        }
+        AppActivationPolicy.leave()
     }
 
-    private func centerOnCurrentScreen(_ window: NSWindow) {
+    private func centerOnCurrentScreen(_ window: NSWindow, preferring preferred: NSScreen? = nil) {
         let mouseLocation = NSEvent.mouseLocation
-        let targetScreen = NSScreen.screens.first { $0.frame.contains(mouseLocation) }
+        let targetScreen = preferred
+            ?? NSScreen.screens.first { $0.frame.contains(mouseLocation) }
             ?? NSScreen.main
             ?? NSScreen.screens.first
 

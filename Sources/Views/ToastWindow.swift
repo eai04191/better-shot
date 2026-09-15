@@ -12,44 +12,31 @@ final class ToastWindow {
 
     private var panelGeneration: UInt = 0
 
-    func show(title: String = "Saved", message: String, icon: NSImage? = nil, systemIcon: String? = nil, duration: TimeInterval = 2.5) {
+    func show(title: String = "Saved", message: String, icon: NSImage? = nil, systemIcon: String? = nil, duration: TimeInterval = 2.5, on preferredScreen: NSScreen? = nil) {
         dismiss(animated: false)
         panelGeneration &+= 1
 
         let toastView = ToastContentView(title: title, message: message, icon: icon, systemIcon: systemIcon)
         let hostingView = NSHostingView(rootView: toastView)
-        hostingView.setFrameSize(hostingView.fittingSize)
 
-        let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: hostingView.fittingSize),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.level = .floating
-        panel.contentView = hostingView
-        panel.isMovableByWindowBackground = false
-        panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
-        let screenFrame = screen.visibleFrame
-        let panelSize = panel.frame.size
-        let x = screenFrame.midX - panelSize.width / 2
-        let y = screenFrame.maxY - panelSize.height - 12
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        let panel = Self.makePanel(hostingView: hostingView)
+        panel.identifier = NSUserInterfaceItemIdentifier("BetterShot.Toast")
+        guard let screen = preferredScreen ?? NSScreen.main ?? NSScreen.screens.first else { return }
+        let origin = Self.origin(for: panel.frame.size, in: screen.visibleFrame)
+        let x = origin.x
+        let y = origin.y
+        let slide: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 10
+        panel.setFrameOrigin(NSPoint(x: x, y: y + slide))
 
         panel.alphaValue = 0
         panel.orderFrontRegardless()
         self.panel = panel
 
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.25
+            ctx.duration = 0.28
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
+            panel.animator().setFrameOrigin(NSPoint(x: x, y: y))
         }
 
         dismissTask = Task {
@@ -57,6 +44,34 @@ final class ToastWindow {
             guard !Task.isCancelled else { return }
             dismiss(animated: true)
         }
+    }
+
+    /// Shared native presentation for informational and interactive transfer toasts.
+    static func makePanel<Content: View>(hostingView: NSHostingView<Content>) -> NSPanel {
+        // The panel owns its size. Bridging SwiftUI's min/ideal/max sizes back
+        // onto this window can recursively invalidate constraints on macOS 26.
+        let size = hostingView.fittingSize
+        hostingView.sizingOptions = []
+        hostingView.setFrameSize(size)
+        hostingView.autoresizingMask = [.width, .height]
+        let panel = ToastPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.level = .floating
+        panel.contentView = hostingView
+        panel.isMovableByWindowBackground = false
+        panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        return panel
+    }
+
+    static func origin(for size: CGSize, in visibleFrame: CGRect) -> CGPoint {
+        CGPoint(x: visibleFrame.midX - size.width / 2,
+                y: visibleFrame.maxY - size.height - 12)
     }
 
     func dismiss(animated: Bool) {
@@ -109,22 +124,23 @@ private struct ToastContentView: View {
                     .frame(width: 32, height: 32)
             }
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
                 Text(message)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        .padding(.vertical, 11)
+        .glassSurface(cornerRadius: 14, depth: .raised)
+        .accessibilityElement(children: .combine)
     }
+}
+
+private final class ToastPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
 }

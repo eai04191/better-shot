@@ -1,161 +1,84 @@
 # BetterShot
 
-[![macOS](https://img.shields.io/badge/macOS-14.0+-black.svg)](https://github.com/KartikLabhshetwar/better-shot)
+[![macOS](https://img.shields.io/badge/macOS-26.0+-black.svg)](https://github.com/KartikLabhshetwar/better-shot)
 [![License](https://img.shields.io/badge/license-BSD%203--Clause-green.svg)](LICENSE)
 [![X (Twitter)](https://img.shields.io/badge/X-%231DA1F2.svg?style=flat&logo=X&logoColor=white)](https://x.com/code_kartik)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-%23FFDD00.svg?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/code_kartik)
 
-An open-source alternative to CleanShot X. Native Swift app for macOS — fast, lightweight, local-first. No subscriptions, no cloud, no telemetry.
+**One app for the whole screen.** Screenshots, screen recording, and a video
+editor, native on macOS. An open-source alternative to CleanShot X and Loom
+with no subscription, no account, and no telemetry. Nothing leaves your Mac
+unless you share it, and shares go to storage you own.
 
-## What it does
+## Features
 
-### Capture
+- **Screenshots:** region, fullscreen, and window capture with macOS's native selector. OCR text extraction and hex color picker included.
+- **Screenshot saving:** Copy is clipboard-only for every capture mode and in the editor. Screenshots stay in private working storage until you choose Save or Export; editor Save also works before making edits.
+- **Screen recording:** capture a display, window, or adjustable region with system audio, microphone, camera overlay, and teleprompter.
+- **Image editor:** arrows, shapes, text, numbered markers, highlight, blur, pixelate, and crop. Background framing with padding, corners, shadow, wallpapers, and ten soft gradients.
+- **Video editor:** cuts, clip speeds (0.25x to 8x), transitions, crop, zoom, masks (blur/pixelate with Crop Only or Full Frame), captions, and camera controls. Camera layout presets include Camera Bubble, Overlap, Side-by-Side, Presenter, Camera Only, and Screen Only, with left/right positioning for paired layouts. Layouts apply to the whole video and are saved with the project. Camera Bubble and Overlap start at the compact 0.5.2 size (1:1, 26%); selecting either preset restores that size. Floating cameras offer 1:1, 4:3, 3:4, 16:9, 9:16, and 4:5 frames; set 1:1 with 50% rounding for a circle. Background > Video aspect ratio controls the whole video independently, with Original, 16:9, 16:10, 4:3, 9:16, 1:1, and 4:5 plus Fill/Fit.
+- **Default Look:** choose No Background for unframed screenshots and videos, or set background padding down to 0%. Available in General and both editors.
+- **Cursor styles:** Recorded, Arrow (white outlined, starting at 2.5×), Dark, Light, and Dot. Older projects using Hand keep their saved appearance.
+- **Cursor styling:** choose Recorded, Dark, Light, Dot, or native Hand with size, motion, press/ripple effects, and idle hiding. High-resolution artwork preserved in exports.
+- **Capture deck:** keep up to five captures in a floating stack with Copy, Save, Pin, Edit, cloud share, and drag-out. Configurable layouts, tool positions, and dismissal timing.
+- **Media Gallery:** browse captures, edits, and recordings with search, filters, and cloud link management. Delete locally (Trash) or remotely (R2) with confirmation.
+- **Video export:** GPU compositing and hardware encoding, with 30/60 fps, resolution, quality, and MP4/MOV controls. Export and sharing reuse unchanged saved renders.
+- **Cloud sharing:** upload to your own Cloudflare R2 bucket. Optimized image compression, MP4 video, native progress, and retry on failure.
+- **75 customizable shortcuts:** configure global capture, recording controls, deck actions, image tools, and video editing keys. Conflict detection per scope.
+- **URL scheme:** trigger actions from Raycast, Shortcuts, Alfred, or scripts: `bettershot://capture/region`, `bettershot://record`, `bettershot://ocr`, and more.
 
-| Action | Shortcut |
-|---|---|
-| Region screenshot | `⌘⇧4` |
-| Fullscreen screenshot | `⌘⇧3` |
-| Window screenshot | `⌘⇧5` |
-| OCR text + QR/barcode scan | `⌘⇧O` |
-| Color picker (hex) | `⌘⇧C` |
-
-Region, fullscreen, and window capture all use the native macOS `screencapture` CLI for maximum reliability. OCR extracts text and detects QR codes/barcodes in a single pass. Color picker samples any on-screen pixel and copies the hex value. All shortcuts are customizable in Settings > Capture.
-
-### Beautify
-
-- **Backgrounds** — 12 solid color presets, 16 gradient presets, bundled macOS wallpapers, or your own image
-- **Effects** — Padding, corner radius, shadow strength — all rendered live
-- **Layout** — Aspect ratio (Auto, 1:1, 4:3, 3:2, 16:9, 9:16), 9-point alignment grid with smart corner radius
-- **Defaults** — Configure your preferred effects and background in Settings with a live preview
-- **Export** — PNG or JPEG with configurable quality
-
-### Annotate
-
-Rectangles, filled rectangles, ellipses, lines, curved arrows, freehand, text, numbered badges, blur, and spotlight. Each has a single-key shortcut in the editor (`R`, `F`, `O`, `L`, `A`, `D`, `T`, `N`, `B`, `G`). Text annotations support font selection, size, bold, italic, underline, and alignment.
-
-### Workflow
-
-- **Click-to-edit** — Click the floating preview to open the editor
-- **Pin screenshots** — Pin any capture as an always-on-top floating window, unpin all from the menu bar
-- **Auto-apply** — Automatically apply your default background on every capture
-- **Self-timer** — Countdown overlay before capture (3s, 5s, 10s)
-- **Capture history** — Browse and re-open past captures from the menu bar or Settings
-- **Toast notifications** — Confirmation toasts for OCR, color picker, and gallery saves
-- **In-app updates** — Check, download, and install updates without leaving the app
-- **Configurable overlay** — Choose preview position and auto-dismiss timing
+Both editors use a left inspector with compact controls and frosted chrome. Action
+icons use Apple SF Symbols. Full-resolution previews are the default, and original
+source files remain editable.
 
 ## Install
-
-### Homebrew
 
 ```bash
 brew install --cask bettershot
 ```
 
-### Download
+Or grab the `.dmg` from [Releases](https://github.com/KartikLabhshetwar/better-shot/releases).
+Drag **BetterShot** into **Applications** and launch it. A three-step introduction
+(Welcome, Permissions, First Capture) walks you through setup on first run.
 
-1. Go to [Releases](https://github.com/KartikLabhshetwar/better-shot/releases)
-2. Download the latest `.dmg` for your architecture (Apple Silicon or Intel)
-3. Open the DMG, drag BetterShot to Applications
-4. Launch and grant permissions when prompted
+## Default shortcuts
 
-### Build from source
+| Action | Shortcut |
+|---|---|
+| Region screenshot | `⌘⇧4` |
+| Fullscreen screenshot | `⌘⇧3` |
+| Capture and recording bar | `⌘⇧2` |
+| Recording options | `⌘⇧5` |
+| OCR text scan | `⌘⇧O` |
+| Color picker | `⌘⇧C` |
+
+All shortcuts are customizable in Settings > Shortcuts. Additional actions (area
+recording, deck controls, editor tools) start unassigned and can be bound from
+the same page.
+
+## Build from source
 
 ```bash
+brew install xcodegen
 git clone https://github.com/KartikLabhshetwar/better-shot.git
 cd better-shot
-make run
+make release
+open .build/Build/Products/Release/BetterShot.app
 ```
 
-This builds a debug version and launches it. See [all make commands](#make-commands) below.
+Requires macOS 26.0+, Xcode 26+, and XcodeGen. Pure Swift and SwiftUI with a
+single dependency ([DockProgress](https://github.com/nicklama/DockProgress)).
+No Electron, no web views.
 
-### Permissions
-
-BetterShot needs two macOS permissions on first launch:
-
-1. **Screen Recording** — System Settings > Privacy & Security > Screen Recording
-2. **Accessibility** — System Settings > Privacy & Security > Accessibility
-
-Screen Recording lets the app capture your screen. Accessibility lets it override the default macOS screenshot shortcuts with its own.
-
-## Usage
-
-1. Launch BetterShot — it appears in your **menu bar** (top right of screen)
-2. Use a keyboard shortcut or click a capture action from the menu
-3. The floating preview appears — **click it to open the editor**
-4. Adjust background, effects, and add annotations
-5. `⌘S` to save, `⇧⌘C` to copy to clipboard
-
-### Editor shortcuts
-
-| Action | Key |
-|---|---|
-| Select tool | `V` |
-| Rectangle | `R` |
-| Filled rectangle | `F` |
-| Ellipse | `O` |
-| Line | `L` |
-| Arrow | `A` |
-| Freehand | `D` |
-| Text | `T` |
-| Numbered circle | `N` |
-| Blur | `B` |
-| Spotlight | `G` |
-| Save / Export | `⌘S` |
-| Copy to clipboard | `⇧⌘C` |
-| Undo / Redo | `⌘Z` / `⇧⌘Z` |
-| Delete annotation | `Delete` |
-| Select all | `⌘A` |
-| Close editor | `Esc` |
-
-### Settings
-
-Open from the menu bar > **Settings** (or `⌘,`).
-
-- **General** — Save location, clipboard behavior, default effects with live preview (padding, radius, shadow, background including macOS wallpapers and custom images), export format
-- **Capture** — Self-timer delay, keyboard shortcuts (click any shortcut to re-record it), overlay position and dismiss timing
-- **History** — Browse and delete past captures
-- **About** — Version info, in-app update checker, project links (GitHub, X)
-
-## Make commands
-
-| Command | What it does |
-|---|---|
-| `make build` | Debug build |
-| `make release` | Release build (unsigned) |
-| `make run` | Build and launch |
-| `make dmg` | Create DMG for local testing |
-| `make clean` | Remove build artifacts |
-| `make lint` | Check for compiler warnings |
-| `make test-build` | Full clean + release build |
-| `make version` | Print current version |
-
-## Architecture
-
-Native Swift 6 / SwiftUI. No Electron, no web views, no external dependencies.
-
-| Framework | Used for |
-|---|---|
-| CoreGraphics | Image compositing, annotation rendering, beautifier pipeline |
-| CoreImage | Gaussian blur for redaction |
-| Vision | OCR text extraction + QR/barcode detection |
-| AppKit | Color sampling, floating panels, pinned windows, capture via CLI |
-| Carbon | Global keyboard shortcuts via CGEvent tap |
+Run `make test` to verify with unsigned builds, regression checks, editor
+snapshots, and export integration tests.
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, project structure, and coding guidelines.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the build
+workflow, project layout, and submission process. Read [AGENTS.md](AGENTS.md)
+for the required UI and interaction rules.
 
 ## License
 
 BSD 3-Clause. See [LICENSE](LICENSE).
-
-## Star History
-
-<a href="https://www.star-history.com/#KartikLabhshetwar/better-shot&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=KartikLabhshetwar/better-shot&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=KartikLabhshetwar/better-shot&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=KartikLabhshetwar/better-shot&type=date&legend=top-left" />
- </picture>
-</a>

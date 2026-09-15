@@ -1,5 +1,4 @@
 import AppKit
-import CoreGraphics
 import SwiftUI
 
 /// Coordinates the full capture pipeline: hide window -> capture -> sound -> preview/editor.
@@ -10,85 +9,67 @@ final class CaptureOrchestrator {
 
     private(set) var lastCaptureURL: URL?
     private var captureInProgress = false
-    private var pendingCaptures: [ShortcutService.Action] = []
+    private var pendingCaptures: [(ShortcutService.Action, NSScreen?)] = []
+    private var captureScreen: NSScreen?
 
     private init() {}
 
-    func performCapture(_ action: ShortcutService.Action) async {
+    func performCapture(_ action: ShortcutService.Action, on screen: NSScreen? = nil) async {
         if captureInProgress {
-            pendingCaptures.append(action)
+            pendingCaptures.append((action, screen))
             return
         }
         captureInProgress = true
+        captureScreen = screen
         await executeCapture(action)
-        while let next = pendingCaptures.first {
+        await finishCaptures()
+    }
+
+    private func finishCaptures() async {
+        while let (next, nextScreen) = pendingCaptures.first {
             pendingCaptures.removeFirst()
+            captureScreen = nextScreen
             await executeCapture(next)
         }
+        captureScreen = nil
         captureInProgress = false
     }
 
+    func captureLastRegion(on screen: NSScreen? = nil) async {
+        guard !captureInProgress, AppPreferences.lastRegionRect != nil else { return }
+        captureInProgress = true
+        captureScreen = screen
+        await RecordingBarPresenter.shared.hidePickerForCapture()
+        await captureAndProcess { try await ScreenCapture.shared.captureLastRegion() }
+        await finishCaptures()
+    }
+
     private func executeCapture(_ action: ShortcutService.Action) async {
+        if action != .recording {
+            await RecordingBarPresenter.shared.hidePickerForCapture()
+        }
         switch action {
-        case .region:
-            await captureAndProcess { try await ScreenCapture.shared.captureRegion() }
+        case .region, .timedRegion, .regionCopy, .regionSave, .regionEdit, .regionPin:
+            await captureAndProcess(action: action) { try await ScreenCapture.shared.captureRegion() }
         case .fullscreen:
             await captureAndProcess { try await ScreenCapture.shared.captureFullscreen() }
         case .window:
             await captureAndProcess { try await ScreenCapture.shared.captureWindow() }
-        case .ocr:
-            await performOCR()
+        case .ocr, .ocrSingleLine:
+            await performOCR(singleLine: action == .ocrSingleLine)
         case .colorPicker:
             await performColorPick()
-        case .snapCapture:
-            await captureAndProcess { try await self.snapCaptureToURL() }
+        default:
+            break
         }
-    }
-
-    // MARK: - Snap Capture
-
-    /// Freezes the cursor display, runs the snap overlay, then writes the
-    /// even-padded real-pixel crop to a temp PNG for the shared capture pipeline.
-    /// Returns nil on cancel. The rest of the flow (sound, history import,
-    /// Beautify, save, copyAfterSave clipboard, preview) is handled by
-    /// `captureAndProcess` exactly like every other capture.
-    private func snapCaptureToURL() async throws -> URL? {
-        // Without Screen Recording permission the freeze would be black; bail out
-        // with guidance instead of flashing a dark full-screen overlay.
-        guard CGPreflightScreenCaptureAccess() else {
-            _ = CGRequestScreenCaptureAccess() // shows the system prompt on first denial
-            ToastWindow.shared.show(
-                title: "Screen Recording required",
-                message: "Allow BetterShot in System Settings → Privacy & Security → Screen Recording, then try again.",
-                systemIcon: "exclamationmark.triangle"
-            )
-            return nil
-        }
-
-        guard let frozen = await DisplayFreezeCapture.captureCursorDisplay() else { return nil }
-        let overlay = SnapCaptureOverlay(frozenImage: frozen.image, screen: frozen.screen)
-        guard let cropped = await overlay.run() else { return nil }
-        return writeTempPNG(cropped)
-    }
-
-    private func writeTempPNG(_ image: CGImage) -> URL? {
-        let dir = NSTemporaryDirectory()
-        let stamp = Int(Date().timeIntervalSince1970 * 1000)
-        let url = URL(fileURLWithPath: "\(dir)bettershot_snap_\(stamp).png")
-        guard let destination = CGImageDestinationCreateWithURL(
-            url as CFURL, "public.png" as CFString, 1, nil
-        ) else { return nil }
-        CGImageDestinationAddImage(destination, image, nil)
-        guard CGImageDestinationFinalize(destination) else { return nil }
-        return url
     }
 
     // MARK: - Private
 
-    private func captureAndProcess(_ capture: () async throws -> URL?) async {
-        let delay = AppPreferences.selfTimerDelay
-        if delay != .off {
-            await CountdownOverlay.shared.showCountdown(seconds: delay.rawValue)
+    private func captureAndProcess(action: ShortcutService.Action = .region, _ capture: () async throws -> URL?) async {
+        let delay = action == .timedRegion ? max(3, AppPreferences.selfTimerDelay.rawValue) : AppPreferences.selfTimerDelay.rawValue
+        if delay > 0 {
+            await CountdownOverlay.shared.showCountdown(seconds: delay, on: captureScreen)
         }
 
         do {
@@ -96,14 +77,7 @@ final class CaptureOrchestrator {
 
             ScreenCapture.shared.playShutterSound()
 
-            let record = HistoryStore.shared.importCapture(from: url)
-            if let record {
-                lastCaptureURL = HistoryStore.shared.urlForRecord(record)
-            }
-
-            guard let capturedURL = lastCaptureURL else { return }
-
-            await galleryApplyAndSave(capturedURL)
+            await processCapturedImage(url, action: action)
         } catch {
             print("Capture failed: \(error.localizedDescription)")
         }
@@ -111,115 +85,156 @@ final class CaptureOrchestrator {
 
 
     private func performColorPick() async {
-        let overlay = ColorPickerOverlay()
-        guard let hex = await overlay.pickColor() else { return }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(hex, forType: .string)
-        ScreenCapture.shared.playShutterSound()
-        ToastWindow.shared.show(
-            title: "Copied",
-            message: "\(hex) copied to clipboard",
-            systemIcon: "eyedropper"
-        )
+        do {
+            let overlay = ColorPickerOverlay()
+            guard let hex = try await overlay.pickColor() else { return }
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(hex, forType: .string)
+            ScreenCapture.shared.playShutterSound()
+            ToastWindow.shared.show(
+                title: "Copied", message: "\(hex) copied to clipboard",
+                systemIcon: "eyedropper", on: captureScreen
+            )
+        } catch {
+            ToastWindow.shared.show(title: "Couldn’t pick color", message: error.localizedDescription,
+                systemIcon: "eyedropper", on: captureScreen)
+        }
     }
 
-    private func performOCR() async {
+    private func performOCR(singleLine: Bool = false) async {
         do {
             guard let text = try await ScreenCapture.shared.captureAndOCR() else { return }
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
+            pasteboard.setString(singleLine ? text.split(whereSeparator: \.isNewline).joined(separator: " ") : text, forType: .string)
             ScreenCapture.shared.playShutterSound()
             ToastWindow.shared.show(
                 title: "Copied",
                 message: "Text copied to clipboard",
-                systemIcon: "doc.text.viewfinder"
+                systemIcon: "doc.text.viewfinder",
+                on: captureScreen
             )
         } catch {
             print("OCR failed: \(error.localizedDescription)")
         }
     }
 
-    private func galleryApplyAndSave(_ url: URL) async {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return }
+    /// Every screenshot starts in private staging; only an explicit Save exports it.
+    func processCapturedImage(_ url: URL, action: ShortcutService.Action = .region) async {
+        let stagedURL = await stageCapture(url)
+        let displayURL = AppPreferences.keepInDeckUntilSaved ? stagedURL : DeckStaging.retain(stagedURL)
+        if displayURL != stagedURL { DeckStaging.discard(stagedURL) }
+        lastCaptureURL = displayURL
 
-        let config = AppPreferences.defaultBeautifierConfig
-        let rendered = BeautifierRenderer.render(image: cgImage, config: config)
-
-        guard let rendered else { return }
-
-        let savedURL = saveImage(rendered)
-
-        if let savedURL {
-            saveBaseImage(rawURL: url, alongside: savedURL)
+        if action == .regionCopy || (action != .regionSave && AppPreferences.copyAfterSave) {
+            do {
+                try ScreenshotFileActions.copyImageToClipboard(from: displayURL)
+            } catch {
+                ToastWindow.shared.show(title: "Copy Failed", message: error.localizedDescription,
+                    systemIcon: "exclamationmark.triangle", on: captureScreen)
+            }
         }
 
-        if AppPreferences.copyAfterSave, let savedURL {
-            copyToClipboard(savedURL)
+        PreviewOverlay.shared.show(url: displayURL, on: captureScreen)
+        if action == .regionSave {
+            PreviewOverlay.shared.save(displayURL)
+        } else if action == .regionPin {
+            let retainedURL = DeckStaging.retain(displayURL)
+            guard !DeckStaging.isStaged(retainedURL) else { return }
+            PinnedScreenshotController.shared.pin(url: retainedURL, on: captureScreen)
+            PreviewOverlay.shared.remove(displayURL)
+        } else if action == .regionEdit || (AppPreferences.openEditorAfterCapture && action != .regionCopy) {
+            PreviewOverlay.shared.openAnnotateEditor(for: displayURL)
         }
-
-        if savedURL != nil {
-            let appIcon = NSImage(named: "AppIcon") ?? NSApp.applicationIconImage
-            ToastWindow.shared.show(
-                message: AppPreferences.copyAfterSave ? "Screenshot saved & copied!" : "Screenshot saved!",
-                icon: appIcon
-            )
-        }
-
-        PreviewOverlay.shared.show(url: url)
     }
 
-    private func saveImage(_ cgImage: CGImage) -> URL? {
-        let dir = AppPreferences.saveDirectory
-        let stamp = Int(Date().timeIntervalSince1970 * 1000)
-        let ext = AppPreferences.exportFormat.fileExtension
-        let path = "\(dir)/bettershot_\(stamp).\(ext)"
-        let url = URL(fileURLWithPath: path)
+    private func stageCapture(_ url: URL) async -> URL {
+        let config = AppPreferences.defaultBeautifierConfig
+        let stagedURL = await Task.detached { () -> URL? in
+            guard (try? DeckStaging.prepareDirectory()) != nil,
+                  let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                  let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil),
+                  let rendered = BeautifierRenderer.render(image: cgImage, config: config) else { return nil }
+            return Self.saveImage(rendered, in: DeckStaging.directory.path)
+        }.value
+
+        guard let stagedURL else {
+            ToastWindow.shared.show(title: "Couldn’t prepare capture",
+                message: "The original screenshot is still available in the preview.",
+                systemIcon: "exclamationmark.triangle", on: captureScreen)
+            return url
+        }
+        do {
+            try FileManager.default.moveItem(at: url, to: DeckStaging.rawURL(for: stagedURL))
+            return stagedURL
+        } catch {
+            try? FileManager.default.removeItem(at: stagedURL)
+            return url
+        }
+    }
+
+    nonisolated static func saveImage(_ cgImage: CGImage, in dir: String) -> URL? {
+        let format = AppPreferences.exportFormat
+        let directory = URL(fileURLWithPath: dir, isDirectory: true)
+        let url = directory.appendingPathComponent("bettershot_\(UUID().uuidString).\(format.fileExtension)")
+        let stagingURL = directory.appendingPathComponent(".\(url.lastPathComponent)")
+        defer { try? FileManager.default.removeItem(at: stagingURL) }
 
         guard let destination = CGImageDestinationCreateWithURL(
-            url as CFURL,
-            AppPreferences.exportFormat.utType as CFString,
+            stagingURL as CFURL,
+            format.utType as CFString,
             1, nil
         ) else { return nil }
 
         var options: [CFString: Any] = [:]
-        if AppPreferences.exportFormat == .jpeg {
+        if format == .jpeg {
             options[kCGImageDestinationLossyCompressionQuality] = AppPreferences.exportQuality
         }
 
         CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
 
         guard CGImageDestinationFinalize(destination) else { return nil }
-        return url
+        do {
+            // Rename only a complete image; moveItem refuses to overwrite an existing file.
+            try FileManager.default.moveItem(at: stagingURL, to: url)
+            return url
+        } catch {
+            return nil
+        }
     }
 
-    private func saveBaseImage(rawURL: URL, alongside beautifiedURL: URL) {
-        let baseURL = Self.baseImageURL(for: beautifiedURL)
-        try? FileManager.default.copyItem(at: rawURL, to: baseURL)
+    /// Legacy home of duplicated raw copies. Nothing writes here any more; kept so old captures still resolve.
+    static var baseStorageDir: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("BetterShot/bases", isDirectory: true)
     }
 
     static func baseImageURL(for url: URL) -> URL {
-        let dir = url.deletingLastPathComponent()
         let name = url.deletingPathExtension().lastPathComponent
-        return dir.appendingPathComponent("\(name).base.png")
+        return baseStorageDir.appendingPathComponent("\(name).base.png")
     }
 
+    /// Maps a saved/beautified image back to the untouched capture the editor should load.
     static func resolveRawSource(for url: URL) -> URL {
         let baseURL = baseImageURL(for: url)
         if FileManager.default.fileExists(atPath: baseURL.path) {
             return baseURL
         }
+        // Legacy: check alongside the file for old .base.png files
+        let legacyDir = url.deletingLastPathComponent()
+        let legacyName = url.deletingPathExtension().lastPathComponent
+        let legacyURL = legacyDir.appendingPathComponent("\(legacyName).base.png")
+        if FileManager.default.fileExists(atPath: legacyURL.path) {
+            return legacyURL
+        }
+        if let record = HistoryStore.shared.records.first(where: { $0.beautifiedPath == url.path }) {
+            let rawURL = HistoryStore.shared.urlForRecord(record)
+            if FileManager.default.fileExists(atPath: rawURL.path) {
+                return rawURL
+            }
+        }
         return url
     }
 
-    private func copyToClipboard(_ url: URL) {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return }
-        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.writeObjects([nsImage])
-    }
 }

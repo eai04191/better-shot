@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Represents a captured screenshot or recording in the history.
@@ -9,13 +10,21 @@ struct CaptureRecord: Identifiable, Codable, Equatable {
     var pixelHeight: Int
     var kind: CaptureKind
     var hasAnnotations: Bool
+    var beautifiedPath: String?
+    /// Absolute path when the file lives outside Application Support and is only referenced.
+    var sourcePath: String?
+    /// Public link from the last successful cloud share, if any.
+    var shareURL: String?
 
     init(
         filename: String,
         pixelWidth: Int,
         pixelHeight: Int,
         kind: CaptureKind = .screenshot,
-        hasAnnotations: Bool = false
+        hasAnnotations: Bool = false,
+        beautifiedPath: String? = nil,
+        sourcePath: String? = nil,
+        shareURL: String? = nil
     ) {
         self.id = UUID()
         self.createdAt = Date()
@@ -24,7 +33,12 @@ struct CaptureRecord: Identifiable, Codable, Equatable {
         self.pixelHeight = pixelHeight
         self.kind = kind
         self.hasAnnotations = hasAnnotations
+        self.beautifiedPath = beautifiedPath
+        self.sourcePath = sourcePath
+        self.shareURL = shareURL
     }
+
+    var isManaged: Bool { sourcePath == nil }
 }
 
 enum CaptureKind: String, Codable {
@@ -40,6 +54,20 @@ struct BeautifierConfig: Codable, Equatable {
     var shadowStrength: CGFloat = 0.36
     var alignment: ImageAlignment = .center
     var aspectRatio: CanvasAspectRatio = .auto
+    var grade = ColorGrade.neutral
 
     static let `default` = BeautifierConfig()
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        style = try container.decodeIfPresent(BackgroundStyle.self, forKey: .style) ?? .none
+        padding = try container.decodeIfPresent(CGFloat.self, forKey: .padding) ?? 0.08
+        cornerRadius = try container.decodeIfPresent(CGFloat.self, forKey: .cornerRadius) ?? 0.018
+        shadowStrength = try container.decodeIfPresent(CGFloat.self, forKey: .shadowStrength) ?? 0.36
+        alignment = try container.decodeIfPresent(ImageAlignment.self, forKey: .alignment) ?? .center
+        aspectRatio = try container.decodeIfPresent(CanvasAspectRatio.self, forKey: .aspectRatio) ?? .auto
+        grade = try container.decodeIfPresent(ColorGrade.self, forKey: .grade) ?? .neutral
+    }
 }

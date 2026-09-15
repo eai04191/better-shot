@@ -12,7 +12,6 @@ xcuserdata/
 
 # Swift Package Manager
 .build/
-.build-test/
 Package.resolved
 
 # macOS
@@ -33,6 +32,12 @@ build-x86_64/
 
 # Local scripts
 scripts/
+!/scripts/
+/scripts/*
+!/scripts/run-checks.sh
+!/scripts/create-dmg.sh
+!/scripts/dmg-background.swift
 
-# Claude Code
-CLAUDE.md
+# Claude Code local worktrees (shared CLAUDE.md is tracked)
+.claude/worktrees/
+.build-release/

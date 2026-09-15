@@ -34,11 +34,25 @@ final class ScreenCapture {
         defer { isCapturing = false }
 
         let tempPath = makeTempPath()
-        // `-i` (not `-s`) so the Space key toggles selection ↔ window mode,
-        // matching native cmd+shift+4. `-s` is mouse-selection-only.
-        // `-o` strips the window shadow when the user toggles to window mode,
-        // matching captureWindow's default behavior.
         let success = await runScreencapture(["-i", "-o", "-x", "-t", "png", tempPath])
+        guard success, FileManager.default.fileExists(atPath: tempPath) else { return nil }
+        return URL(fileURLWithPath: tempPath)
+    }
+
+    /// Captures the remembered rectangle straight away, no selection overlay.
+    func captureLastRegion() async throws -> URL? {
+        guard !isCapturing, let globalRect = AppPreferences.lastRegionRect else { return nil }
+        isCapturing = true
+        defer { isCapturing = false }
+        let pointsRect = RegionGeometry.pointsRect(global: globalRect, primaryHeight: CGDisplayBounds(CGMainDisplayID()).height)
+        return try await regionShot(pointsRect)
+    }
+
+    private func regionShot(_ pointsRect: CGRect) async throws -> URL? {
+        try? await Task.sleep(for: .milliseconds(80))
+        let tempPath = makeTempPath()
+        let region = RegionGeometry.screencaptureArgument(pointsRect)
+        let success = await runScreencapture(["-R", region, "-x", "-t", "png", tempPath])
         guard success, FileManager.default.fileExists(atPath: tempPath) else { return nil }
         return URL(fileURLWithPath: tempPath)
     }
@@ -49,7 +63,10 @@ final class ScreenCapture {
         guard !isCapturing else { return nil }
         isCapturing = true
         defer { isCapturing = false }
+        return try await windowShot(includeShadow: includeShadow)
+    }
 
+    private func windowShot(includeShadow: Bool) async throws -> URL? {
         let tempPath = makeTempPath()
         var args = ["-w"]
         if !includeShadow { args.append("-o") }
@@ -129,8 +146,7 @@ final class ScreenCapture {
 
     private func makeTempPath() -> String {
         let dir = NSTemporaryDirectory()
-        let stamp = Int(Date().timeIntervalSince1970 * 1000)
-        return "\(dir)bettershot_\(stamp).png"
+        return "\(dir)bettershot_\(UUID().uuidString).png"
     }
 
     private func runScreencapture(_ arguments: [String]) async -> Bool {

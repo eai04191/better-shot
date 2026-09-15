@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 final class MenuBarPopoverController: NSObject {
@@ -10,19 +11,36 @@ final class MenuBarPopoverController: NSObject {
     private(set) var isOpen = false
     private var eventMonitor: Any?
 
+    var originScreen: NSScreen? {
+        statusItem?.button?.window?.screen
+    }
+
     private override init() { super.init() }
 
     func setup() {
+        guard statusItem == nil else { return }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = item.button {
             button.image = NSImage(named: "MenuBarIcon")
             button.image?.isTemplate = true
+            button.setAccessibilityLabel("BetterShot")
             button.action = #selector(togglePopover(_:))
             button.target = self
         }
 
+        if let window = item.button?.window {
+            window.registerForDraggedTypes([.fileURL])
+            window.delegate = self
+        }
+
         statusItem = item
+    }
+
+    func setVisible(_ visible: Bool) {
+        if visible { setup() }
+        else { closePopover() }
+        statusItem?.isVisible = visible
     }
 
     @objc private func togglePopover(_ sender: NSStatusBarButton) {
@@ -122,5 +140,67 @@ final class MenuBarPopoverController: NSObject {
             NSEvent.removeMonitor(monitor)
             eventMonitor = nil
         }
+    }
+}
+
+extension MenuBarPopoverController: NSWindowDelegate, NSDraggingDestination {
+    func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard !droppedImageURLs(from: sender).isEmpty else { return [] }
+        showDropTargetHint()
+        return .copy
+    }
+
+    func draggingExited(_ sender: NSDraggingInfo?) {
+        clearDropTargetHint()
+    }
+
+    func draggingEnded(_ sender: NSDraggingInfo) {
+        clearDropTargetHint()
+    }
+
+    func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        clearDropTargetHint()
+        let urls = droppedImageURLs(from: sender)
+        guard !urls.isEmpty else { return false }
+        for url in urls {
+            PreviewPanelPresenter.shared.onAnnotate?(url)
+        }
+        return true
+    }
+
+    private func showDropTargetHint() {
+        guard let button = statusItem?.button else { return }
+        button.isHighlighted = true
+        let hint = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: "Drop image to edit")
+        hint?.isTemplate = true
+        setIcon(hint, on: button, duration: 0.18)
+    }
+
+    private func clearDropTargetHint() {
+        guard let button = statusItem?.button else { return }
+        button.isHighlighted = false
+        let icon = NSImage(named: "MenuBarIcon")
+        icon?.isTemplate = true
+        setIcon(icon, on: button, duration: 0.12)
+    }
+
+    private func setIcon(_ image: NSImage?, on button: NSStatusBarButton, duration: CFTimeInterval) {
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            button.wantsLayer = true
+            let fade = CATransition()
+            fade.type = .fade
+            fade.duration = duration
+            fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            button.layer?.add(fade, forKey: "iconFade")
+        }
+        button.image = image
+    }
+
+    private func droppedImageURLs(from sender: NSDraggingInfo) -> [URL] {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [
+            .urlReadingFileURLsOnly: true,
+            .urlReadingContentsConformToTypes: [UTType.image.identifier]
+        ]
+        return sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
     }
 }
