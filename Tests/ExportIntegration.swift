@@ -13,6 +13,10 @@ struct ExportIntegration {
         precondition(ProcessInfo.processInfo.environment["BETTERSHOT_TESTING"] == "1",
                      "Run through Tests/run-exports.sh to keep the real Keychain isolated")
         precondition(R2CredentialStore.shared.keychainAccess == .empty)
+        if ProcessInfo.processInfo.environment["BETTERSHOT_CHECK_SNAP_ONLY"] == "1" {
+            try await checkSnapCapture()
+            return
+        }
         defer { try? FileManager.default.removeItem(at: ScreenshotHistoryStore.applicationSupportDirectory) }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString)
@@ -775,7 +779,7 @@ private func checkScreenshotCopyAndSave(source: URL, directory: URL) async throw
         AppPreferences.keepInDeckUntilSaved = keep
         for opensEditor in [false, true] {
             AppPreferences.openEditorAfterCapture = opensEditor
-            for action in [ShortcutService.Action.region, .timedRegion, .fullscreen, .window, .regionCopy, .regionEdit] {
+            for action in [ShortcutService.Action.snapCapture, .region, .timedRegion, .fullscreen, .window, .regionCopy, .regionEdit] {
                 editorURL = nil
                 let staged = try await capture(action)
                 precondition(savedFiles().isEmpty, "Capture and opening the editor must never export automatically")

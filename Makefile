@@ -22,6 +22,7 @@ PROJECT      = BetterShot.xcodeproj
 CONFIG_DEBUG = Debug
 CONFIG_REL   = Release
 DERIVED_DIR  = .build
+TEST_DIR     = .build-test
 APP_DEBUG    = $(DERIVED_DIR)/Build/Products/$(CONFIG_DEBUG)/$(SCHEME).app
 APP_RELEASE  = $(DERIVED_DIR)/Build/Products/$(CONFIG_REL)/$(SCHEME).app
 VERSION     := $(shell python3 -c "import json; print(json.load(open('version.json'))['version'])")
@@ -29,7 +30,15 @@ BUILD_NUM   := $(shell python3 -c "import json; print(json.load(open('version.js
 DMG_NAME     = BetterShot-$(VERSION).dmg
 DMG_DIR      = release
 
-.PHONY: generate build release run dmg clean lint test test-build version ship help
+# Preserve the same local certificate across builds so macOS keeps capture permissions.
+# Pass the existing identity using BS_SIGN_ID; never commit a machine-specific identity.
+BS_SIGN_ID ?=
+SIGN_FLAGS :=
+ifneq ($(strip $(BS_SIGN_ID)),)
+SIGN_FLAGS := CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$(BS_SIGN_ID)" DEVELOPMENT_TEAM= ENABLE_HARDENED_RUNTIME=NO
+endif
+
+.PHONY: generate build release run dmg clean lint test test-snap test-build version ship help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -47,7 +56,7 @@ build: generate ## Debug build
 		-scheme $(SCHEME) \
 		-configuration $(CONFIG_DEBUG) \
 		-derivedDataPath $(DERIVED_DIR) \
-		build 2>&1 | tail -3
+		$(SIGN_FLAGS) build 2>&1 | tail -3
 	@echo "==> $(APP_DEBUG)"
 
 release: generate ## Release build (unsigned)
@@ -83,14 +92,26 @@ lint: ## Check for compiler warnings
 		-scheme $(SCHEME) \
 		-configuration $(CONFIG_DEBUG) \
 		-derivedDataPath $(DERIVED_DIR) \
-		build 2>&1 | grep -E "warning:|error:" || echo "No warnings."
+		$(SIGN_FLAGS) build 2>&1 | grep -E "warning:|error:" || echo "No warnings."
 
-test: generate ## Build and run regression/editor/export checks without Keychain prompts
+test: generate ## Run isolated unit, regression, editor and export checks without signing
 	@xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
-		-configuration $(CONFIG_DEBUG) -derivedDataPath $(DERIVED_DIR) \
+		-configuration $(CONFIG_DEBUG) -derivedDataPath $(TEST_DIR) \
 		CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES build 2>&1 | tail -3
 	@bash scripts/run-checks.sh
-	@bash Tests/run-exports.sh
+	@xcodebuild test -project $(PROJECT) -scheme BetterShotLogicTests \
+		-configuration $(CONFIG_DEBUG) -derivedDataPath $(TEST_DIR) \
+		-destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO 2>&1 | tail -8
+	@BETTERSHOT_DERIVED_DIR="$(TEST_DIR)" bash Tests/run-exports.sh
+
+test-snap: generate ## Build and check Snap offscreen without moving focus or the pointer
+	@xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+		-configuration $(CONFIG_DEBUG) -derivedDataPath $(TEST_DIR) \
+		CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES build 2>&1 | tail -3
+	@xcodebuild test -project $(PROJECT) -scheme BetterShotLogicTests \
+		-configuration $(CONFIG_DEBUG) -derivedDataPath $(TEST_DIR) \
+		-destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO 2>&1 | tail -8
+	@BETTERSHOT_CHECK_SNAP_ONLY=1 BETTERSHOT_DERIVED_DIR="$(TEST_DIR)" bash Tests/run-exports.sh
 
 test-build: clean release ## Full clean + release build
 	@echo "==> Test build passed."

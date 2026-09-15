@@ -17,6 +17,23 @@ make release
 open .build/Build/Products/Release/BetterShot.app
 ```
 
+For a local fork build, preserve the existing signing identity:
+
+```bash
+make build BS_SIGN_ID="<existing local signing identity>"
+```
+
+`BS_SIGN_ID` applies only to local Debug builds. It keeps the designated requirement
+stable across rebuilds so Screen Recording and Accessibility grants remain valid.
+Do not replace an already authorized identity or rebuild the runnable app unsigned.
+`make test` uses `.build-test` for its unsigned app and hostless logic tests;
+export checks link a separate test executable with `BETTERSHOT_TESTING=1`.
+The runnable `.build` app is neither overwritten nor launched by tests.
+Use `make test-snap` for hostless logic tests and offscreen Snap rendering checks.
+It neither displays windows nor posts input events nor changes application focus.
+The full upstream `make test` suite also exercises live preview/editor windows;
+run that only when desktop interaction is acceptable.
+
 `make release` produces an unsigned build (used by CI). `make build` and
 `make run` use the signing settings in `project.yml`. On a fork, select your
 own team or Sign to Run Locally in Xcode. Do not commit personal signing

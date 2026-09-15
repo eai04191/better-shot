@@ -56,3 +56,31 @@ targets:
       properties:
         com.apple.security.device.audio-input: true
         com.apple.security.device.camera: true
+
+  BetterShotTests:
+    type: bundle.unit-test
+    platform: macOS
+    # Logic tests compile only their subject; they never launch BetterShot.app.
+    sources:
+      - Tests/ContentSnapperTests.swift
+      - Tests/SnapShortcutMigrationTests.swift
+      - Sources/Capture/ContentSnapper.swift
+      - Sources/Services/SnapShortcutMigration.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bettershot.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+
+schemes:
+  BetterShot:
+    build:
+      targets:
+        BetterShot: all
+  BetterShotLogicTests:
+    build:
+      targets:
+        BetterShotTests: [test]
+    test:
+      targets:
+        - BetterShotTests

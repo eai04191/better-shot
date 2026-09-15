@@ -8,6 +8,7 @@ import SwiftUI
 /// AVPlayer layers and window toolbars require live UI testing and are not captured here.
 @MainActor
 func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
+    try await checkSnapCapture()
     try await checkColorPickerAndToast()
     try await checkPreviewOverlay(imageURL: imageURL)
     try await checkMediaGallery(imageURL: imageURL, movieURL: movieURL)
@@ -301,7 +302,7 @@ func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
     try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
     let buildConfiguration = ProcessInfo.processInfo.environment["BETTERSHOT_BUILD_CONFIGURATION"] ?? "Debug"
     let appBundle = Bundle(url: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent(".build/Build/Products/\(buildConfiguration)/BetterShot.app"))!
+        .appendingPathComponent("\(ProcessInfo.processInfo.environment["BETTERSHOT_DERIVED_DIR"] ?? ".build-test")/Build/Products/\(buildConfiguration)/BetterShot.app"))!
     let practiceDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: practiceDirectory) }
     for sample in OnboardingSample.allCases {
@@ -899,7 +900,7 @@ private func checkMediaGallery(imageURL: URL, movieURL: URL) async throws {
     try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
     let configuration = ProcessInfo.processInfo.environment["BETTERSHOT_BUILD_CONFIGURATION"] ?? "Debug"
     let galleryBundle = Bundle(url: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent(".build/Build/Products/\(configuration)/BetterShot.app"))!
+        .appendingPathComponent("\(ProcessInfo.processInfo.environment["BETTERSHOT_DERIVED_DIR"] ?? ".build-test")/Build/Products/\(configuration)/BetterShot.app"))!
     var snapshotItems = entries
     for sample in OnboardingSample.allCases {
         let url = sample.sourceURL(in: galleryBundle)!
@@ -1157,7 +1158,7 @@ private func checkPreviewOverlay(imageURL: URL) async throws {
     for scheme in [ColorScheme.light, .dark] {
         let name = scheme == .light ? "light" : "dark"
         let bundle = Bundle(url: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent(".build/Build/Products/\(ProcessInfo.processInfo.environment["BETTERSHOT_BUILD_CONFIGURATION"] ?? "Debug")/BetterShot.app"))!
+            .appendingPathComponent("\(ProcessInfo.processInfo.environment["BETTERSHOT_DERIVED_DIR"] ?? ".build-test")/Build/Products/\(ProcessInfo.processInfo.environment["BETTERSHOT_BUILD_CONFIGURATION"] ?? "Debug")/BetterShot.app"))!
         try snapshot(OverlaySettingsTab(resourceBundle: bundle), scheme: scheme,
                      width: 540, to: output.appendingPathComponent("overlay-settings-\(name).png"), height: 1050)
         try snapshot(PreferencesView(selection: .overlay), scheme: scheme, width: 780,
@@ -1239,4 +1240,84 @@ private func checkColorPickerAndToast() async throws {
         precondition(!panel.isVisible)
     }
     print("PASS color picker sRGB/P3/grayscale conversion, safe unsupported colors, and stable native toast lifecycle")
+}
+
+@MainActor
+func checkSnapCapture() async throws {
+    let defaults = UserDefaults.standard
+    let keys = ["bs_snapExtendPx", "bs_snapThreshold"]
+    let saved = keys.map { defaults.object(forKey: $0) }
+    defer { for (key, value) in zip(keys, saved) { defaults.set(value, forKey: key) } }
+    AppPreferences.snapExtendPx = 16
+    AppPreferences.snapThreshold = .medium
+    let screen = NSScreen.main!
+    let scale = screen.backingScaleFactor
+    let width = Int(screen.frame.width * scale), height = Int(screen.frame.height * scale)
+    let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+        bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    context.setFillColor(CGColor(gray: 1, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    context.setFillColor(CGColor(gray: 0, alpha: 1))
+    context.fill(CGRect(x: 200 * scale, y: 200 * scale, width: 200 * scale, height: 100 * scale))
+    let frozen = context.makeImage()!
+    let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent(".build-test/snap-snapshots")
+    try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+    for scheme in [ColorScheme.light, .dark] {
+        try snapshot(SnapControlPanel(threshold: .medium, extendPx: 16,
+            onThresholdChange: { _ in }, onExtendChange: { _ in }, onConfirm: {}, onCancel: {}),
+            scheme: scheme, width: 324, to: output.appendingPathComponent("panel-\(scheme).png"), height: 164)
+    }
+    for cancel in [false, true] {
+        var captured: CGImage?
+        var didCancel = false
+        let foregroundPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let view = SnapSelectionView(frozenImage: frozen, scale: scale,
+            onConfirm: { captured = $0 }, onCancel: { didCancel = true })
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: screen.frame.size),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        defer { window.contentView = nil; window.close() }
+        // Deliver to the offscreen view directly. Never post events, activate an app,
+        // order a window front, or invoke the live capture overlay from a test.
+        if !cancel {
+            view.mouseDown(with: NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 180, y: 180),
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 1, clickCount: 1, pressure: 1)!)
+            view.mouseDragged(with: NSEvent.mouseEvent(with: .leftMouseDragged, location: CGPoint(x: 420, y: 320),
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 2, clickCount: 1, pressure: 1)!)
+            view.mouseUp(with: NSEvent.mouseEvent(with: .leftMouseUp, location: CGPoint(x: 420, y: 320),
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 3, clickCount: 1, pressure: 0)!)
+            view.layoutSubtreeIfNeeded()
+            let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            try bitmap.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("selection.png"))
+        }
+        view.keyDown(with: NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            characters: cancel ? "\u{1b}" : "\r", charactersIgnoringModifiers: cancel ? "\u{1b}" : "\r",
+            isARepeat: false, keyCode: cancel ? 53 : 36)!)
+        let image = captured
+        precondition(!window.isVisible, "Snap checks must keep their window offscreen")
+        precondition(NSWorkspace.shared.frontmostApplication?.processIdentifier == foregroundPID,
+            "Snap checks must not steal focus")
+        if cancel {
+            precondition(didCancel && image == nil, "Escape must cancel without creating a capture")
+        } else {
+            guard let image else { preconditionFailure("Return must confirm a selected crop") }
+            precondition(image.width == Int(232 * scale) && image.height == Int(132 * scale),
+                "Snap must fit the content and add equal 16pt margins at the display scale: \(image.width)x\(image.height)")
+            let url = try SnapImageFile.writeTemporaryPNG(image)
+            defer { try? FileManager.default.removeItem(at: url) }
+            let decoded = CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithURL(url as CFURL, nil)!, 0, nil)!
+            precondition(decoded.width == image.width && decoded.height == image.height)
+            precondition(ContentSnapper.makeLuminanceBuffer(from: decoded)!.pixels == ContentSnapper.makeLuminanceBuffer(from: image)!.pixels,
+                "Temporary PNG must preserve the crop pixels losslessly")
+        }
+    }
+    print("PASS Snap Capture overlay drag, tight content crop, Retina margins, Return, Escape, PNG roundtrip and light/dark snapshots")
 }
