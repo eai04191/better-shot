@@ -105,7 +105,10 @@ a PR unless explicitly requested.
   to integer pixels and preserve lossless PNG behavior.
 - All screenshot modes stage privately. Copy never exports to the configured
   folder; Edit, Pin, Share, and drag-out retain working files internally. Only
-  explicit Save/Export or capture-and-save writes a deliverable. Editor Save
+  explicit Save/Export, capture-and-save, or opt-in automatic saving of normal
+  captures writes a deliverable. Automatic saving defaults off; explicit Copy,
+  Edit, and Pin shortcuts bypass it. Preserve preview/editor behavior and retain
+  failed automatic saves for retry. Editor Save
   must work for untouched screenshots, and clipboard file references must
   survive dismissing the capture card.
 - The Arrow cursor style uses the shared high-resolution, white-outlined stemless vector artwork with an arrow-tip hotspot. Keep the legacy `macOS` storage key. Hand is no longer offered, but
@@ -124,6 +127,11 @@ a PR unless explicitly requested.
   and fall back to the screen when camera footage is unavailable or hidden.
 - Plain typing is not recorded. Do not expand input capture as a shortcut to a
   cursor or keyboard-overlay feature.
+- `ScreenshotFileNaming` is the only source for deliverable file names. Keep its
+  renderer pure and Foundation-only, keep the default template rendering the
+  pre-0.5.0 name, and never let a template reach the file system without the
+  existing sanitizing. Recording package directory names are project identity,
+  not deliverable names; do not rename them.
 
 ## Backgrounds and persistence
 

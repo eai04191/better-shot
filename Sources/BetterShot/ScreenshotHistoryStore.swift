@@ -44,10 +44,14 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
         recordingSession?.directoryURL ?? url
     }
 
-    var isVideo: Bool { kind == .video }
+    var isVideo: Bool {
+        kind == .video || recordingSessionPath != nil
+            || CaptureKind.resolved(for: URL(fileURLWithPath: fileName)) == .recording
+            || sourceCapturePath.map { CaptureKind.resolved(for: URL(fileURLWithPath: $0)) == .recording } == true
+    }
 
     // Backward-compatible decoding: existing history.json entries have no
-    // `kind` or `duration` fields, so they default to .image / nil.
+    // `kind` or `duration` fields. Recover video kinds from the filename/package.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
@@ -62,6 +66,7 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
         hasEdits = try container.decodeIfPresent(Bool.self, forKey: .hasEdits) ?? false
         recordingSessionPath = try container.decodeIfPresent(String.self, forKey: .recordingSessionPath)
         sourceCapturePath = try container.decodeIfPresent(String.self, forKey: .sourceCapturePath)
+        if isVideo { kind = .video }
     }
 
     init(
@@ -90,6 +95,7 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
         self.hasEdits = hasEdits
         self.recordingSessionPath = recordingSessionPath
         self.sourceCapturePath = sourceCapturePath
+        if isVideo { self.kind = .video }
     }
 }
 
@@ -571,6 +577,7 @@ final class ScreenshotHistoryStore {
 
     static func shouldKeep(_ item: ScreenshotHistoryItem) -> Bool {
         FileManager.default.fileExists(atPath: item.url.path)
+            || item.sourceCapturePath.map { FileManager.default.fileExists(atPath: $0) } == true
             || MediaGalleryItem.cloudLink(item.cloudURL) != nil
     }
 
@@ -591,7 +598,11 @@ final class ScreenshotHistoryStore {
 
     private func uniqueHistoryURL(for sourceURL: URL) -> URL {
         let pathExtension = sourceURL.pathExtension.isEmpty ? "png" : sourceURL.pathExtension
-        let fileName = ScreenshotFileNaming.fileName(extension: pathExtension)
+        let isVideo = VideoExportContainer(fileExtension: pathExtension) != nil
+        let fileName = ScreenshotFileNaming.currentFileName(
+            extension: pathExtension,
+            kind: isVideo ? .recording : .screenshot
+        )
         let initialURL = Self.historyDirectory.appendingPathComponent(fileName)
 
         guard FileManager.default.fileExists(atPath: initialURL.path) else {

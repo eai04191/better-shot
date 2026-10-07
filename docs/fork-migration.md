@@ -1,5 +1,32 @@
 # Fork migration
 
+## Upstream update — 2026-09-23
+
+Updated to upstream `b04e99611eff55c5163e84d4c50b1769e546b76b` (0.5.6, build 23).
+The pre-update source is retained on `chore/backup-before-upstream-update-20260923`
+at `e58c9e5`. The update is a resolved, uncommitted merge on the current branch.
+While this merge remains uncommitted, `git merge --abort` returns to the pre-update
+source; preserve any subsequent work before aborting. The previous runnable app is
+backed up at `.git/upstream-update-20260923/BetterShot.app`. The new app was built
+at `.build/Build/Products/Debug/BetterShot.app` using the same local signing identity.
+Strict code-signature verification passed and its designated requirement matches
+the backup. No app was launched; application data and permissions were not changed.
+
+Snap Capture, shortcut migration, fixed local signing, and `.build-test` isolation
+remain. Test runners now consistently use upstream's `BETTERSHOT_DERIVED_DATA`
+variable. Snap failures use upstream's shared capture error presentation once.
+
+Validation: all 29 standalone checks passed. Project generation and conflict/whitespace
+checks passed. Xcode 27.0 initially could not load IDESimulatorFoundation because
+the system DVTDownloads framework lacked a required symbol. Running the recommended
+`xcodebuild -runFirstLaunch` completed successfully and resolved the build blocker.
+The fixed-identity Debug build passed and reports version 0.5.6. `make test-snap`
+passed: 11 logic tests, no failures or skips, plus offscreen Snap drag/crop, Retina
+margins, Return/Escape, lossless PNG and light/dark rendering checks. The test checks
+that its selection window stays invisible and foreground application is unchanged.
+The full upstream integration suite was not run because it displays live windows.
+The verification results below describe the earlier 0.5.3 migration.
+
 ## Baselines
 
 - Previous fork: `6b44beaa8ed0cbfb59e32f574dc82e5a1b4a6ede` (0.3.6).

@@ -205,10 +205,9 @@ struct MenuBarContentView: View {
     }
 
     private func dismissAndRun(_ action: ShortcutService.Action) {
-        nonisolated(unsafe) let screen = originScreen
+        let screen = ActiveDisplayResolver.screenForScreenshotCapture() ?? originScreen
         dismissPopover()
-        Task.detached {
-            try? await Task.sleep(nanoseconds: 200_000_000)
+        Task { @MainActor in
             await CaptureOrchestrator.shared.performCapture(action, on: screen)
         }
     }
@@ -251,7 +250,7 @@ struct MenuBarContentView: View {
         // captures stay visible until acted on, regardless of the capture timer.
         DispatchQueue.main.async {
             guard FileManager.default.fileExists(atPath: url.path) else {
-                ToastWindow.shared.show(title: "Capture unavailable", message: "This file has been moved or deleted.", systemIcon: "exclamationmark.triangle", on: screen)
+                ToastWindow.shared.show(isError: true, title: "Capture unavailable", message: "This file has been moved or deleted.", systemIcon: "exclamationmark.triangle", on: screen)
                 return
             }
             PreviewOverlay.shared.show(url: url, on: screen, automaticallyDismiss: false)

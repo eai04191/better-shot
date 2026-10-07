@@ -5,6 +5,121 @@ All notable changes to Better Shot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.6] - 2026-09-21
+
+### Changed
+
+- Restored the 0.5.4 compact floating recording strip in both capture modes. Its popover again provides Display, Window, Area, Camera, Microphone, System Audio, and Teleprompter controls, while the shared timer menu configures screenshot and recording delays.
+- Limited the notch to capture previews, saved shelf items, quick editing, and related status. Capture, recording, countdown, and teleprompter controls remain in their dedicated floating surfaces.
+- Moved the customizable Notch capture modifier and hold action to Settings > Shortcuts.
+
+### Fixed
+
+- Bare modifier presses no longer open or expand the notch, Option voice capture is opt-in so it does not conflict with tools such as Wispr Flow, and notch scroll indicators remain hidden.
+- Switching between Normal and Notch modes no longer moves the recording bar between unrelated window hierarchies, preventing mode-switch lag and crashes.
+- Switching into Notch Mode now opens its preview shelf immediately, even before the first screenshot is taken, then keeps the compact resting notch available while idle.
+- Closing the final image preview no longer tears down its SwiftUI/AppKit window during the button event, preventing the close-action crash in Normal and Notch modes.
+
+## [0.5.5] - 2026-09-19
+
+- Added a Capture hold key setting with Control, Option, Shift, and Command choices; Option capture takes priority over the optional voice gesture.
+- Refined screenshot/video notch cards with rounded, edge-to-edge thumbnails, a transparent edge, lower title scrim, and actions revealed on hover or keyboard focus; retained consistent circular cloud controls in overlays and Settings, and drag handling confined to the media preview.
+
+### Added
+
+- **Scroll capture:** select a region, then scroll (manually or with auto-scroll) to stitch a full-page screenshot. Uses Vision framework for pixel-precise alignment, TIFF byte comparison for frame settlement, frozen header detection, scrollbar exclusion, and incremental stitching up to 30,000 pixels. Configurable via UserDefaults for auto-scroll speed and max height.
+- Restored hold-and-drag area screenshots as the default. Pressing the configured modifier alone leaves the notch hidden; drawing over the screen requires explicitly selecting Draw on screen in Settings.
+- Copied hex colors appear as persistent swatches in Notch Mode, with a separate collection setting enabled by default; ordinary text history remains opt-in.
+- OCR and Pick Color actions in the notch's folder menu show their configured shortcuts.
+
+- Local voice screenshots: use the quick-editor microphone or opt into holding Option to draw and speak, then release to retain an annotated image with an on-device transcript. Copy image/file/text together or copy the transcript separately. Microphone access is explicit, temporary audio is removed after completion/discard, and failed transcription can retry or keep the image without voice.
+- Optional local text history in General > Notch Shelf, with 50-item retention, duplicate removal, private pasteboard-marker exclusions, per-card dismissal, and a confirmed Clear action. Collection starts with the next copy and defaults off.
+- A compact quick editor below the notch with drawing, arrows, blur, crop, background and undo. Done preserves full-resolution PNGs and editable source/annotations in the private library; shelf cards open in the full editor.
+
+- **Optional Notch Mode:** choose Normal Mode or Notch Mode in Settings > General > Capture Mode. Normal remains the default, including on upgrade. The notch hosts the shared screenshot tools (Area, Fullscreen, Window, OCR, Color, and timers), recording options and Stop/Pause/Restart/Discard controls, and image/video previews with Copy, Save, Edit, Pin, Cloud Share, and Dismiss. Browse pending captures without opening a separate overlay. Hardware notches can collapse to a compact capture/recording status; other displays use a top-center floating panel.
+- Notch mode also hosts countdowns, recording teleprompter text and export/share progress with existing recovery actions. Pending previews stay available until acted on. Switching modes preserves captures and recording state; the notch hides during selection/capture and follows capture-window exclusion settings.
+
+### Changed
+
+- Simplified the notch to saved cards and filters, removing the capture toolbar and grid/viewfinder controls. Hold Control and drag an area to capture on mouse release; a bare modifier press does nothing. Early Control release or Escape cancels; standard region shortcuts keep the native macOS selector.
+- Notch OCR text and colors now persist across launches and can be dragged into other apps as text/hex values. Image previews retain file drag-out. New OCR/color/clipboard history is collected only in Notch Mode; switching modes stops clipboard monitoring immediately.
+
+- Reworked the notch into a black horizontal shelf inspired by the supplied reference: a 560-point panel, white selected filter pills, 160-point image/video/OCR/color cards, full-color swatches with contrast-aware hex labels, and a collapsible shared capture toolbar. All/Text/Images/Videos/Colors replace Capture/Recents. Cards keep Copy and media action menus; the library menu retains bulk Save/Dismiss. Pending and recent media are deduplicated, while hover opening/closing, inline failures, and no-toast behavior remain.
+
+- Redesigned the shared capture controls and notch recording setup with native Screen/Window/Area tabs, visible camera and microphone pickers, system audio, recording delay, and an explicit Start Recording action. Screenshot tools stay one click, with a separate visible screenshot timer. Recording controls now label Stop, Paused, Preparing, and Saving; transitions are shorter and respect Reduce Motion.
+
+- Notch Mode never displays toast notifications. Copy confirms directly on the result button; capture and saving failures remain as dismissible inline instructions. Switching modes removes existing toasts immediately. Recent items stay aligned and disabled action icons remain readable.
+
+- Notch shape, hover controls, and interactions reuse Boring Notch code, with contributor attribution, pinned source references, and its GPLv3 license bundled with the app.
+
+- The notch groups capture tools and provides actions on each media card. Its compact state shows the BetterShot logo and readiness/editor status, or the recording timer. Short, interruptible transitions respect Reduce Motion.
+
+- The notch opens on hover and collapses after the pointer leaves. Menus, recording options, and confirmations prevent premature closing; non-notched displays also have a compact state. Recent Captures shows saved screenshots and videos with type filters, thumbnails, and the existing gallery actions.
+
+- Expanded and compact Notch Mode use an opaque black surface matching the camera cutout, with native macOS controls and readable dark-appearance labels in either system appearance.
+
+- Refined the notch into a compact black capture shelf with smaller SF Symbol controls, an uncropped preview, a clear Open Editor action, and recent media when idle. Expansion uses a subtle 140 ms ease-out; Reduce Motion disables it.
+
+- OCR and color picking automatically copy their results and keep the recognized text or hex color in the notch with Copy and Dismiss actions. Text supports selection and scrolling; colors show a swatch. Empty OCR preserves the clipboard and offers retry guidance.
+
+### Fixed
+
+- Bare modifier presses no longer open or expand the notch, Option voice capture is opt-in so it does not conflict with tools such as Wispr Flow, hold-gesture controls now live with keyboard shortcuts, and notch scroll indicators remain hidden.
+- The notch shelf's All filter now places the newest capture first across screenshots, recordings, text, and colors instead of always leading with text history.
+- Screenshot failures now show recovery guidance instead of disappearing silently. Window screenshots now use the native macOS window picker and capture directly through ScreenCaptureKit, avoiding command-line window stream failures. Confirm the selected window with “Share This Window”; Cancel creates no screenshot. Unsigned test builds use a separate directory so they cannot overwrite the running dev app and invalidate its capture permission.
+
+- Fix an editor redraw loop in notch transfer-status routing that could consume a CPU core and make video playback controls and scrubbing lag, even with no transfer in progress. Repeated idle/unchanged status updates no longer publish changes; real progress and current Cancel/Retry actions remain available.
+
+- Image and video editors can enter and leave native full screen again. SwiftUI no longer overrides fullscreen support after the window opens; the automatic fullscreen preference remains supported.
+- 3D Scenes now use full-width buttons with readable names, shot counts, and scene descriptions. Consistent padding replaces crowded tiles and clipped shot bars in narrow inspectors.
+
+## [0.5.4] - 2026-09-19
+
+### Added
+
+- **Guided introduction and update notes:** a three-page guide introduces screenshots, video timelines, and 3D shots before the existing optional permission setup. Replay it from Settings > About > Take the Tour. Updates show the bundled changelog once per version, including skipped releases; fresh installs see only the guide. What’s New remains available in Settings > About.
+- **Auto Scene and native effect controls:** preview Cap’s automatic sequence before applying it, with one-second minimum shots, weighted scene timing, and nearby boundaries snapped to clip edits. Cancel restores the previous playhead without changing the project; Apply creates one undoable edit. Camera, Depth Blur, Keyframes, Timing, and Looks remain expanded, with fixed section shortcuts, directly visible fold/lens sliders, and one-click selection of animated properties and their granular curve editor. Larger perspective thumbnails include hover/focus previews. Camera endpoints and selected keyframes seek to their actual positions.
+- **3D hover preview:** empty space in the 3D timeline shows a dashed shot outline and duration before clicking. The preview fits between neighboring shots, disappears over existing shots, and skims paused footage without changing the project or undo history.
+
+- **3D shots in the video editor**: Effects > 3D Shots adds eight camera moves and five drifting angles, custom start/end positions, easing, transitions, flips, and shot playback. Generate up to six shots across a video or apply a scene within a shot’s range; short ranges use fewer shots. Move and resize shots in their timeline lane or enter exact times in the inspector. Screen, cursor, masks, and camera share the perspective transform over a fixed background; subtitles stay readable. Native GPU preview/export, undo/redo, saved projects, and cloud-share renders carry the edits without modifying source footage.
+- **3D timeline workflow:** a visible **+ Add** menu offers Zoom and 3D Shot; empty cut-marker rows collapse so 3D segments sit directly below the filmstrip. All eight moves and five angles now follow the reference camera framing and drift, with independent screen fold, distance, and lens controls, linear preset motion, and weighted scenes. Legacy plane poses retain their appearance.
+- **3D depth and animation:** native Camera, Depth Blur, and Keyframes controls add radial, directional, and tilt-shift focus, bokeh highlights, and per-property keyframes with draggable Bézier handles and numeric editing. Curves resize with their shot and survive undo, saving, export, and sharing. Preview reuses the export GPU compositor with bounded frames in flight; legacy plane shots keep their look.
+
+- **Closer Cap rendering:** preserve authored angles and camera distance at the horizon, apply zoom to the whole card, fade flat shadows out during 3D shots, and keep keyboard captions sharp above depth blur. Gaussian weights, three-ring bokeh/highlight gain, motion curves, and independent entry/exit timing follow the upstream renderer. Reference tests compare all 13 presets and 248 camera/framing cases against Cap’s actual Rust code; adapted code includes upstream licensing and attribution.
+
+- Rotate images left or right by 90° and flip horizontally or vertically from the image editor’s native Rotate menu (#144). Full-resolution pixels and editable annotations transform together, persist through saving/reopening, and carry through copy, export, and sharing. Mixed drawing, crop, rotation, and flip edits undo/redo in order; four optional shortcut actions start unassigned.
+
+- Optional automatic screenshot saving in General > Saving (#149). Normal captures can save immediately to the configured folder while keeping the preview or editor available. Defaults off, including on upgrade; explicit Copy, Edit, and Pin shortcuts remain private. Saved files stay linked to their editable originals, and failed saves remain in the deck for retry.
+
+- **File name templates**: Settings > General > Saving takes a template for saved screenshots and recordings. Type any text, and use the + button to add a date, a time, a random hex/base62/digit string, a UUID, a running counter, the capture type, or the file extension. `standup-{date}-{counter:3}` saves `standup-2026-09-17-004.png`, and `hello-{hex:8}` saves `hello-c1786d2a.png`. An example of the finished name sits under the field, and a template that uses `{counter}` gets a Next number readout and a Reset button. Text BetterShot does not recognize is kept exactly as typed. Path separators, colons, leading dots, and over-long names are corrected before anything is written. The default template produces the same names as earlier versions, so upgrading leaves an existing save folder alone.
+
+- Edit Clipboard Image or Last Capture shortcut (unassigned by default): opens an image from the clipboard in the editor, or the most recent capture when the clipboard has no image.
+
+- **Direct file links** toggle in Settings > Sharing (#133). Self-hosting users can copy the raw R2 object URL instead of the bettershot.site viewer page, so links work as `<img src>`, in markdown, and in chat unfurling. Off by default; the viewer page remains the default for everyone else. Public bucket URL validation now rejects embedded credentials.
+
+- **Preview follows mouse across displays** (#128). The preview card tracks whichever display the mouse is on, or pins to a chosen display in Settings > Capture. Fixes fullscreen capture grabbing the wrong display on multi-monitor setups, drag/tap gesture interference on preview buttons, and panel reuse across mixed-DPI boundaries.
+
+- **Hide capture bar at launch** (#151). Settings > General > Startup toggle to suppress the capture bar on app start. On by default to preserve current behavior. Global shortcuts remain active regardless of the setting.
+
+- **WebP export format** (#148). Screenshots and recordings can now be saved as WebP alongside PNG and JPEG. WebP produces smaller files than JPEG at similar quality with broad browser and editor support. Select it in Settings > General > File Format; the quality slider applies to both WebP and JPEG.
+
+### Changed
+
+- Media Gallery and Settings now use native navigation columns with resizable, collapsible sidebars and section titles aligned with their content. Gallery icons use Finder-sized previews, more space between rows, and blue filename selection while retaining sortable list view and contextual actions.
+- Media Gallery now uses Finder-style icon and list views, native sidebar and toolbar search, compact thumbnails, selection, contextual actions, and a location/status bar.
+- Settings now follows the macOS System Settings layout with compact neutral SF Symbol tiles, a native search field, native switches, and grouped controls.
+
+### Fixed
+
+- **Visual 3D controls:** separate Looks, Camera, Depth Blur, Keyframes, and Timing cards, side-by-side Start/End previews, a bounded drag-to-orbit pad, adaptive preset grids, and scene cards with shot counts. Depth blur has an enable switch and focus choices. All numeric camera and curve controls remain available. Close up retains its original Cap framing, motion, and depth-blur settings.
+
+- Image and video editors support native full screen with automatic full-screen opening enabled or disabled, and take focus when opened from the preview overlay. The menu tray dismisses immediately on editor clicks or Escape and closes before screenshot or recording-picker actions, including while an editor is full screen.
+
+- Settings displays the selected section title once using the native toolbar title. Gallery list view uses native sortable Name, Date Created, and Kind columns; compact previews and folder/media SF Symbols bring both views closer to Finder.
+- Media Gallery separates On this Mac and Cloud Shares into explicit All Media, Screenshots, and Videos sections with counts. A shared item with a local source appears in both locations; cloud-only links remain available after local deletion.
+- Video recognition uses macOS file types for imported and legacy history entries, including missing or stale image labels. Video previews and editor reopening retain their recording package when an export is regenerated or removed.
+- Gallery and Settings use macOS sidebar and toolbar materials, native grouped forms, accessible controls, and light/dark support. Displayed-window checks verify these system surfaces instead of relying on offscreen snapshots that can show white placeholders.
+
 ## [0.5.3] - 2026-09-11
 
 ### Added

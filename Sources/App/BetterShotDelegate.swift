@@ -19,6 +19,8 @@ final class BetterShotDelegate: NSObject, NSApplicationDelegate {
         DeckStaging.purge()
         AppPreferences.migrateEditorPreferences()
         AppPreferences.applyAppearance()
+        NotchShelfStore.shared.refreshMonitoring()
+        NotchVoiceCapture.shared.refreshGesture()
         AppActivationPolicy.applyVisibility()
         RecordingRecoveryCoordinator.recoverInterruptedRecordings()
         do {
@@ -30,7 +32,9 @@ final class BetterShotDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async {
             if OnboardingState.shouldPresent() {
                 OnboardingWindowController.shared.show()
-            } else {
+            } else if ReleaseNotesWindowController.shared.show(onlyIfNew: true) {
+                // Keep the update notes in focus instead of also opening the capture bar.
+            } else if UserDefaults.standard.object(forKey: AppPreferences.showCaptureBarAtLaunchKey) as? Bool ?? true {
                 RecordingBarPresenter.shared.showPicker(activate: false)
             }
         }
@@ -90,6 +94,8 @@ final class BetterShotDelegate: NSObject, NSApplicationDelegate {
     /// Quitting mid-recording finishes and saves the recording first, and
     /// Studio's debounced autosave is flushed so no edit is lost.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if let panel = NotchQuickEditor.shared.panel, !NotchQuickEditor.shared.windowShouldClose(panel) { return .terminateCancel }
+        NotchQuickEditor.shared.discardVoice()
         StudioProjectRegistry.shared.flushDrafts()
         guard ScreenRecordingManager.shared.isActive else { return .terminateNow }
 

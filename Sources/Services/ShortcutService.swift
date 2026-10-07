@@ -76,7 +76,9 @@ final class ShortcutService {
             return
         }
 
-        let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue)
+        let eventMask: CGEventMask = [CGEventType.keyDown, .flagsChanged, .leftMouseDown,
+                                     .leftMouseDragged, .leftMouseUp, .rightMouseDown]
+            .reduce(0) { $0 | (1 << $1.rawValue) }
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -182,6 +184,10 @@ final class ShortcutService {
             return Unmanaged.passUnretained(event)
         }
 
+        if MainActor.assumeIsolated({ NotchVoiceCapture.shared.handleControlEvent(type: type, event: event) }) {
+            return nil
+        }
+
         guard type == .keyDown else {
             return Unmanaged.passUnretained(event)
         }
@@ -209,7 +215,6 @@ final class ShortcutService {
 
         for (action, shortcut) in cachedShortcuts {
             if keyCode == shortcut.keyCode && carbonMods == shortcut.modifiers {
-                // Holding a shortcut must not queue repeated captures or confirmations.
                 if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
                     Task { @MainActor in await ShortcutService.shared.performGlobal(action) }
                 }

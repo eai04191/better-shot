@@ -26,6 +26,8 @@ final class RecordingBarPresenter {
     }
 
     private(set) var mode: Mode = .picker
+    private(set) var isVisible = false
+    private(set) var displayID: CGDirectDisplayID?
 
     /// The bar's frame inside the panel's content view, reported by SwiftUI.
     /// The panel is deliberately much larger than the bar, so this is what
@@ -46,7 +48,7 @@ final class RecordingBarPresenter {
     // MARK: Picker
 
     func togglePicker() {
-        if let panel, panel.isVisible, mode == .picker {
+        if isVisible, mode == .picker {
             hide()
         } else {
             showPicker()
@@ -55,25 +57,26 @@ final class RecordingBarPresenter {
 
     func showPicker(activate: Bool = true, recordingOptions: Bool = false, on displayID: CGDirectDisplayID? = nil) {
         guard !ScreenRecordingManager.shared.isActive else { return }
-        let panel = panel ?? makePanel()
-        PreviewWindowCaptureExclusion.shared.register(window: panel)
+        MenuBarPopoverController.shared.closePopover()
         mode = .picker
+        isVisible = true
         showsRecordingOptions = recordingOptions
-        position(panel, displayID: displayID ?? ActiveDisplayResolver.activeDisplayID(preferPointer: false))
-        panel.orderFrontRegardless()
+        self.displayID = displayID ?? ActiveDisplayResolver.activeDisplayID(preferPointer: false)
+        refreshPresentation()
         // The picker is driven from the keyboard too (Esc, A for the last
         // region), and key events only reach the panel while BetterShot is
         // the active app. Focus is handed back when the picker leaves.
         guard activate else { return }
         if !NSApp.isActive { previousApp = NSWorkspace.shared.frontmostApplication }
         NSApp.activate(ignoringOtherApps: true)
-        panel.makeKey()
+        panel?.makeKey()
         LastRegionGhostPresenter.shared.show()
         warmCameraPreviewIfEnabled()
     }
 
     /// All screenshot entry points clear the shared picker before capturing.
     func hidePickerForCapture() async {
+        MenuBarPopoverController.shared.closePopover()
         guard mode == .picker, !ScreenRecordingManager.shared.isActive else { return }
         hide()
         await CameraRecordingManager.shared.stopPreview()
@@ -102,6 +105,8 @@ final class RecordingBarPresenter {
     /// the recording's display it morphs in place; otherwise it has to move,
     /// and there's nothing to morph from.
     func showRecording(displayID: CGDirectDisplayID?) {
+        isVisible = true
+        self.displayID = displayID
         let panel = panel ?? makePanel()
         PreviewWindowCaptureExclusion.shared.register(window: panel)
         TeleprompterComposerPresenter.shared.hide()
@@ -110,7 +115,7 @@ final class RecordingBarPresenter {
 
         let isMorphing = panel.isVisible && isPositioned(panel, onDisplayID: displayID)
         if isMorphing {
-            withAnimation(BarMetrics.modeChange) {
+            withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : BarMetrics.modeChange) {
                 mode = .recording
             }
         } else {
@@ -122,6 +127,7 @@ final class RecordingBarPresenter {
     }
 
     func hide() {
+        isVisible = false
         // `orderOut` sends no exit events, so a hover that's live when the
         // bar hides has to be ended by hand - it holds the pointing hand.
         BarControlHoverView.endActiveHover()
@@ -144,7 +150,7 @@ final class RecordingBarPresenter {
     }
 
     func containsScreenPoint(_ point: CGPoint) -> Bool {
-        guard let barFrame, panel?.isVisible == true else { return false }
+        guard let barFrame, isVisible else { return false }
         return barFrame.contains(point)
     }
 
@@ -164,6 +170,14 @@ final class RecordingBarPresenter {
             width: barFrameInPanel.width,
             height: barFrameInPanel.height
         )
+    }
+
+    func refreshPresentation() {
+        panel?.orderOut(nil)
+        guard isVisible else { return }
+        let panel = panel ?? makePanel()
+        position(panel, displayID: displayID)
+        panel.orderFrontRegardless()
     }
 
     private func isPositioned(_ panel: NSPanel, onDisplayID displayID: CGDirectDisplayID?) -> Bool {
@@ -208,6 +222,7 @@ final class RecordingBarPresenter {
         )
 
         panel.backgroundColor = .clear
+        panel.identifier = NSUserInterfaceItemIdentifier("BetterShot.RecordingBar")
         panel.isOpaque = false
         // Shadows are drawn in SwiftUI, not by AppKit. The window shadow is
         // derived from the window's alpha silhouette and recomputed lazily,
@@ -309,6 +324,7 @@ private final class RecordingBarHostingView<Content: View>: NSHostingView<Conten
 // MARK: - Bar
 
 private struct RecordingBarView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var presenter = RecordingBarPresenter.shared
     @State private var tooltip = BarTooltipModel()
 
@@ -375,8 +391,8 @@ private struct RecordingBarView: View {
         // Keyed on the id as well as the text so sliding the pointer along
         // the bar glides the pill from control to control rather than
         // cross-fading it in place.
-        .animation(.easeOut(duration: 0.12), value: tooltip.visible?.id)
-        .animation(.easeOut(duration: 0.12), value: tooltip.visible?.text)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: tooltip.visible?.id)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: tooltip.visible?.text)
     }
 
     private var barShape: RoundedRectangle {

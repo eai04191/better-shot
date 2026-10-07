@@ -56,7 +56,11 @@ enum BetterShotPreferences {
     /// Settings > General, so editor exports and fresh captures always land
     /// in the same folder as the same kind of file.
     static var exportFormat: ScreenshotExportFormat {
-        AppPreferences.exportFormat == .jpeg ? .jpeg : .png
+        switch AppPreferences.exportFormat {
+        case .jpeg: .jpeg
+        case .webp: .webp
+        case .png: .png
+        }
     }
 
     static var compressionQuality: Double {
@@ -213,6 +217,7 @@ enum ScreenshotExportFormat: String, CaseIterable, Identifiable {
     case png
     case jpeg
     case heic
+    case webp
 
     var id: String { rawValue }
 
@@ -224,6 +229,8 @@ enum ScreenshotExportFormat: String, CaseIterable, Identifiable {
             "JPEG"
         case .heic:
             "HEIC"
+        case .webp:
+            "WebP"
         }
     }
 
@@ -235,6 +242,8 @@ enum ScreenshotExportFormat: String, CaseIterable, Identifiable {
             "jpg"
         case .heic:
             "heic"
+        case .webp:
+            "webp"
         }
     }
 
@@ -246,6 +255,8 @@ enum ScreenshotExportFormat: String, CaseIterable, Identifiable {
             .jpeg
         case .heic:
             .heic
+        case .webp:
+            .webP
         }
     }
 
@@ -257,27 +268,30 @@ enum ScreenshotExportFormat: String, CaseIterable, Identifiable {
 enum ScreenshotFileActions {
     static func copyImageToClipboard(from url: URL) throws {
         let contentType = UTType(filenameExtension: url.pathExtension)
-        let dataType: NSPasteboard.PasteboardType = if contentType?.conforms(to: .jpeg) == true {
-            NSPasteboard.PasteboardType(UTType.jpeg.identifier)
+        let dataType: NSPasteboard.PasteboardType
+        if contentType?.conforms(to: .jpeg) == true {
+            dataType = NSPasteboard.PasteboardType(UTType.jpeg.identifier)
+        } else if contentType?.conforms(to: .webP) == true {
+            dataType = NSPasteboard.PasteboardType(UTType.webP.identifier)
         } else {
-            .png
+            dataType = .png
         }
 
         try copyImageToClipboard(from: url, dataType: dataType)
     }
 
-    static func copyPNGToClipboard(from url: URL) throws {
-        try copyImageToClipboard(from: url, dataType: .png)
+    static func copyPNGToClipboard(from url: URL, text: String? = nil, to pasteboard: NSPasteboard = .general) throws {
+        try copyImageToClipboard(from: url, dataType: .png, text: text, pasteboard: pasteboard)
     }
 
-    private static func copyImageToClipboard(from url: URL, dataType: NSPasteboard.PasteboardType) throws {
+    private static func copyImageToClipboard(from url: URL, dataType: NSPasteboard.PasteboardType,
+                                              text: String? = nil, pasteboard: NSPasteboard = .general) throws {
         let imageData = try Data(contentsOf: url, options: .mappedIfSafe)
         // Keep a clipboard snapshot independent of later dismissal, edits, or Save.
         let clipboardURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("BetterShot-Clipboard-\(UUID().uuidString)")
             .appendingPathExtension(url.pathExtension)
         try imageData.write(to: clipboardURL, options: .atomic)
-        let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
 
         // Write several representations on a single pasteboard item so that
@@ -291,6 +305,10 @@ enum ScreenshotFileActions {
         // Only providing image data is why pasting worked in Gmail but not in
         // terminal apps - those read the file URL flavor instead.
         let item = NSPasteboardItem()
+        if let text {
+            item.setString(text, forType: .string)
+            item.setString("", forType: .init("com.bettershot.voice-capture"))
+        }
         item.setString(clipboardURL.absoluteString, forType: .fileURL)
         item.setData(imageData, forType: dataType)
         if let tiffData = NSBitmapImageRep(data: imageData)?.tiffRepresentation
@@ -322,9 +340,15 @@ enum ScreenshotFileActions {
                                   compressionQuality: BetterShotPreferences.compressionQuality)
     }
 
-    /// Explicit Save from the deck or editor. Internal previews are never export destinations.
+    /// Save from the deck, editor, or opt-in automatic capture saving.
+    /// Internal previews are never export destinations.
     @discardableResult
     static func saveCapture(from renderedURL: URL, for captureURL: URL? = nil, replacing exportURL: URL? = nil) throws -> URL {
+        if DeckStaging.isStaged(renderedURL), captureURL == nil, exportURL == nil {
+            let saved = DeckStaging.promote(renderedURL)
+            guard !DeckStaging.isStaged(saved) else { throw CocoaError(.fileWriteUnknown) }
+            return saved
+        }
         let captureURL = captureURL ?? renderedURL
         let record = HistoryStore.shared.record(matching: captureURL)
         let destination: URL

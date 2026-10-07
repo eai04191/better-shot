@@ -8,17 +8,19 @@ final class CaptureOrchestrator {
     static let shared = CaptureOrchestrator()
 
     private(set) var lastCaptureURL: URL?
-    private var captureInProgress = false
+    private(set) var captureInProgress = false
     private var pendingCaptures: [(ShortcutService.Action, NSScreen?)] = []
     private var captureScreen: NSScreen?
 
     private init() {}
 
     func performCapture(_ action: ShortcutService.Action, on screen: NSScreen? = nil) async {
+        guard !NotchVoiceCapture.shared.isPreparing, !NotchQuickEditor.shared.listening else { return }
         if captureInProgress {
             pendingCaptures.append((action, screen))
             return
         }
+        NotchPresenter.shared.suspendForCapture()
         captureInProgress = true
         captureScreen = screen
         await executeCapture(action)
@@ -33,10 +35,12 @@ final class CaptureOrchestrator {
         }
         captureScreen = nil
         captureInProgress = false
+        NotchPresenter.shared.resumeAfterCapture()
     }
 
     func captureLastRegion(on screen: NSScreen? = nil) async {
         guard !captureInProgress, AppPreferences.lastRegionRect != nil else { return }
+        NotchPresenter.shared.suspendForCapture()
         captureInProgress = true
         captureScreen = screen
         await RecordingBarPresenter.shared.hidePickerForCapture()
@@ -56,9 +60,9 @@ final class CaptureOrchestrator {
                 try await self.snapCaptureToURL()
             }
         case .fullscreen:
-            await captureAndProcess { try await ScreenCapture.shared.captureFullscreen() }
+            await captureAndProcess(action: action) { try await ScreenCapture.shared.captureFullscreen(on: captureScreen) }
         case .window:
-            await captureAndProcess { try await ScreenCapture.shared.captureWindow() }
+            await captureAndProcess(action: action) { try await ScreenCapture.shared.captureWindow() }
         case .ocr, .ocrSingleLine:
             await performOCR(singleLine: action == .ocrSingleLine)
         case .colorPicker:
@@ -76,17 +80,11 @@ final class CaptureOrchestrator {
                 systemIcon: "exclamationmark.triangle", on: captureScreen)
             return nil
         }
-        do {
-            let frozen = try await DisplayFreezeCapture.capture(on: captureScreen)
-            captureScreen = frozen.screen
-            let overlay = SnapCaptureOverlay(frozenImage: frozen.image, screen: frozen.screen)
-            guard let cropped = await overlay.run() else { return nil }
-            return try SnapImageFile.writeTemporaryPNG(cropped)
-        } catch {
-            ToastWindow.shared.show(title: "Couldn’t capture selection", message: error.localizedDescription,
-                systemIcon: "exclamationmark.triangle", on: captureScreen)
-            throw error
-        }
+        let frozen = try await DisplayFreezeCapture.capture(on: captureScreen)
+        captureScreen = frozen.screen
+        let overlay = SnapCaptureOverlay(frozenImage: frozen.image, screen: frozen.screen)
+        guard let cropped = await overlay.run() else { return nil }
+        return try SnapImageFile.writeTemporaryPNG(cropped)
     }
 
     // MARK: - Private
@@ -104,7 +102,8 @@ final class CaptureOrchestrator {
 
             await processCapturedImage(url, action: action)
         } catch {
-            print("Capture failed: \(error.localizedDescription)")
+            ToastWindow.shared.show(isError: true, title: "Couldn’t capture screenshot", message: error.localizedDescription,
+                systemIcon: "exclamationmark.triangle", duration: 10, on: captureScreen)
         }
     }
 
@@ -113,16 +112,9 @@ final class CaptureOrchestrator {
         do {
             let overlay = ColorPickerOverlay()
             guard let hex = try await overlay.pickColor() else { return }
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(hex, forType: .string)
-            ScreenCapture.shared.playShutterSound()
-            ToastWindow.shared.show(
-                title: "Copied", message: "\(hex) copied to clipboard",
-                systemIcon: "eyedropper", on: captureScreen
-            )
+            completeTextCapture(hex, action: .colorPicker)
         } catch {
-            ToastWindow.shared.show(title: "Couldn’t pick color", message: error.localizedDescription,
+            ToastWindow.shared.show(isError: true, title: "Couldn’t pick color", message: error.localizedDescription,
                 systemIcon: "eyedropper", on: captureScreen)
         }
     }
@@ -130,38 +122,81 @@ final class CaptureOrchestrator {
     private func performOCR(singleLine: Bool = false) async {
         do {
             guard let text = try await ScreenCapture.shared.captureAndOCR() else { return }
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(singleLine ? text.split(whereSeparator: \.isNewline).joined(separator: " ") : text, forType: .string)
-            ScreenCapture.shared.playShutterSound()
-            ToastWindow.shared.show(
-                title: "Copied",
-                message: "Text copied to clipboard",
-                systemIcon: "doc.text.viewfinder",
-                on: captureScreen
-            )
+            completeTextCapture(text, action: singleLine ? .ocrSingleLine : .ocr)
         } catch {
-            print("OCR failed: \(error.localizedDescription)")
+            ToastWindow.shared.show(isError: true, title: "Couldn’t recognize text", message: error.localizedDescription,
+                systemIcon: "doc.text.viewfinder", on: captureScreen)
         }
     }
 
-    /// Every screenshot starts in private staging; only an explicit Save exports it.
+    /// Keep the exact clipboard value available for copying again from the notch.
+    func completeTextCapture(_ text: String, action: ShortcutService.Action, pasteboard: NSPasteboard = .general) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            ToastWindow.shared.show(isError: true, title: "No text found", message: "Try selecting a clearer text area.",
+                systemIcon: "doc.text.viewfinder", on: captureScreen)
+            return
+        }
+        let value = action == .ocrSingleLine ? text.split(whereSeparator: \.isNewline).joined(separator: " ") : text
+        let isColor = action == .colorPicker
+        let notch = NotchPresenter.shared
+        notch.captureIssue = nil
+        if AppPreferences.presentationMode == .notch {
+            if isColor { notch.colorHex = value } else { notch.ocrText = value }
+            NotchShelfStore.shared.add(text: value, isColor: isColor)
+        }
+        let copied = Self.copyText(value, to: pasteboard)
+        ScreenCapture.shared.playShutterSound()
+        if AppPreferences.presentationMode == .notch {
+            notch.show(on: captureScreen)
+        }
+        ToastWindow.shared.show(isError: !copied, title: copied ? "Copied" : "Couldn’t copy",
+            message: copied ? (isColor ? "\(value) copied to clipboard" : "Text copied to clipboard") : "Try Copy again.",
+            systemIcon: isColor ? "eyedropper" : "doc.text.viewfinder", on: captureScreen)
+    }
+
+    @discardableResult
+    static func copyText(_ text: String, to pasteboard: NSPasteboard = .general) -> Bool {
+        pasteboard.clearContents()
+        return pasteboard.setString(text, forType: .string)
+    }
+
+    /// Every screenshot starts privately; normal captures can opt into automatic saving.
     func processCapturedImage(_ url: URL, action: ShortcutService.Action = .region) async {
         let stagedURL = await stageCapture(url)
-        let displayURL = AppPreferences.keepInDeckUntilSaved ? stagedURL : DeckStaging.retain(stagedURL)
+        var displayURL = AppPreferences.keepInDeckUntilSaved ? stagedURL : DeckStaging.retain(stagedURL)
         if displayURL != stagedURL { DeckStaging.discard(stagedURL) }
+        let allowsAutomaticSave: Bool = switch action {
+        case .region, .fullscreen, .window, .previousRegion, .timedRegion: true
+        default: false
+        }
+        var saveFailed = false
+        if allowsAutomaticSave && AfterCaptureActions.isEnabled(.save, for: .screenshot) {
+            do {
+                // A staging failure leaves only the original; keep it available for retry.
+                guard DeckStaging.isStaged(stagedURL) else { throw CocoaError(.fileWriteUnknown) }
+                let savedURL = try ScreenshotFileActions.saveCapture(from: displayURL)
+                DeckStaging.discard(displayURL)
+                displayURL = savedURL
+            } catch {
+                saveFailed = true
+            }
+        }
         lastCaptureURL = displayURL
 
         if action == .regionCopy || (action != .regionSave && AppPreferences.copyAfterSave) {
             do {
                 try ScreenshotFileActions.copyImageToClipboard(from: displayURL)
             } catch {
-                ToastWindow.shared.show(title: "Copy Failed", message: error.localizedDescription,
+                ToastWindow.shared.show(isError: true, title: "Copy Failed", message: error.localizedDescription,
                     systemIcon: "exclamationmark.triangle", on: captureScreen)
             }
         }
 
         PreviewOverlay.shared.show(url: displayURL, on: captureScreen)
+        if saveFailed {
+            PreviewOverlay.shared.showSaveFailure(for: displayURL)
+            return
+        }
         if action == .regionSave {
             PreviewOverlay.shared.save(displayURL)
         } else if action == .regionPin {
@@ -185,7 +220,7 @@ final class CaptureOrchestrator {
         }.value
 
         guard let stagedURL else {
-            ToastWindow.shared.show(title: "Couldn’t prepare capture",
+            ToastWindow.shared.show(isError: true, title: "Couldn’t prepare capture",
                 message: "The original screenshot is still available in the preview.",
                 systemIcon: "exclamationmark.triangle", on: captureScreen)
             return url

@@ -2,13 +2,30 @@ import AppKit
 import AVFoundation
 import Carbon
 import SwiftUI
+import TourKit
 @testable import BetterShot
 
 /// Offscreen snapshots and model checks, plus a brief native transfer-toast lifecycle check.
-/// AVPlayer layers and window toolbars require live UI testing and are not captured here.
+/// Set BETTERSHOT_CHECK_LIBRARY_WINDOWS=1 for displayed gallery/Settings screenshots.
+/// AVPlayer layers and interactive capture still require manual testing.
 @MainActor
 func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
     try await checkSnapCapture()
+    // A failed notch check may leave the test executable's defaults in notch mode.
+    // The general overlay/toast checks explicitly exercise normal presentation.
+    let defaults = UserDefaults.standard
+    let previousMode = defaults.object(forKey: AppPreferences.presentationModeKey)
+    defaults.set("normal", forKey: AppPreferences.presentationModeKey)
+    defer {
+        if let previousMode { defaults.set(previousMode, forKey: AppPreferences.presentationModeKey) }
+        else { defaults.removeObject(forKey: AppPreferences.presentationModeKey) }
+    }
+    if ProcessInfo.processInfo.environment["BETTERSHOT_CHECK_EDITOR_WINDOWS"] == "1" {
+        try await checkEditorWindowInteractions(imageURL: imageURL, movieURL: movieURL)
+    }
+    try checkCaptureControlsUI()
+    try await checkNotchPresentation(imageURL: imageURL, movieURL: movieURL)
+    try checkImageTransforms(imageURL: imageURL)
     try await checkColorPickerAndToast()
     try await checkPreviewOverlay(imageURL: imageURL)
     try await checkMediaGallery(imageURL: imageURL, movieURL: movieURL)
@@ -302,7 +319,7 @@ func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
     try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
     let buildConfiguration = ProcessInfo.processInfo.environment["BETTERSHOT_BUILD_CONFIGURATION"] ?? "Debug"
     let appBundle = Bundle(url: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("\(ProcessInfo.processInfo.environment["BETTERSHOT_DERIVED_DIR"] ?? ".build-test")/Build/Products/\(buildConfiguration)/BetterShot.app"))!
+        .appendingPathComponent("\(ProcessInfo.processInfo.environment["BETTERSHOT_DERIVED_DATA"] ?? ".build-test")/Build/Products/\(buildConfiguration)/BetterShot.app"))!
     let practiceDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: practiceDirectory) }
     for sample in OnboardingSample.allCases {
@@ -353,7 +370,33 @@ func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
                      "The test runner must never request real permissions or persist setup attempts")
         precondition(permission.settingsURL.scheme == "x-apple.systempreferences")
     }
+    let releaseNotes = try ReleaseNotesWindowController.load(in: appBundle)
+    let releaseVersion = appBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as! String
+    let currentNotes = releaseNotes.filter { $0.version == releaseVersion }
+    precondition(currentNotes.count == 1 && !currentNotes[0].body.isEmpty, "Every shipped version needs bundled release notes")
+    let tourPages = OnboardingView.tourPages(in: appBundle)
+    precondition(tourPages.count == 3)
+    for page in tourPages {
+        precondition(appBundle.url(forResource: page.imageName, withExtension: nil) != nil, "Tour artwork must ship in the app")
+    }
     for scheme in [ColorScheme.light, .dark] {
+        for width: CGFloat in [420, 640] {
+            try snapshot(ReleaseNotesView(version: releaseVersion, notes: currentNotes, onClose: {}),
+                scheme: scheme, width: width,
+                to: output.appendingPathComponent("release-notes-\(scheme)-\(Int(width)).png"), height: 660)
+        }
+        for index in tourPages.indices {
+            try snapshot(TourSlideshowView(pages: tourPages, width: 472, initialPageIndex: index,
+                finishButtonTitle: "Set Up Permissions", onFinish: {}, onClose: {})
+                .transaction { $0.disablesAnimations = true },
+                scheme: scheme, width: 472,
+                to: output.appendingPathComponent("tour-page-\(index)-\(scheme).png"), height: 510)
+        }
+        try snapshot(ZStack(alignment: .topLeading) {
+            Color.secondary.opacity(0.1)
+            Recording3DInsertionGhost(range: 1...4, pointsPerSecond: 100)
+        }.frame(height: 36).padding(12), scheme: scheme, width: 600,
+            to: output.appendingPathComponent("3d-insertion-ghost-\(scheme).png"), height: 60)
         for step in OnboardingView.Step.allCases {
             for width: CGFloat in [520, 760] {
                 try snapshot(OnboardingView(step: step, resourceBundle: appBundle, isPermissionPreview: false),
@@ -478,13 +521,6 @@ func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
             try snapshot(TransferStatusCard(status: status), scheme: scheme, width: 360,
                          to: output.appendingPathComponent("transfer-\(label)-\(name).png"), height: 112)
         }
-        try snapshot(RecordingSessionControls().studioGlass(cornerRadius: BarMetrics.cornerRadius, opacity: 0.78),
-                     scheme: scheme, width: 360,
-                     to: output.appendingPathComponent("recording-\(name).png"), height: 64)
-        try snapshot(RecordingPickerControls().padding(.horizontal, BarMetrics.horizontalPadding)
-            .frame(height: BarMetrics.height).studioGlass(cornerRadius: BarMetrics.cornerRadius, opacity: 0.78)
-            .background(EditorChrome.workspace), scheme: scheme, width: 760,
-                     to: output.appendingPathComponent("capture-\(name).png"), height: 100)
         try snapshot(
             AnnotationEditorWindow(url: .constant(nil), model: imageModel),
             scheme: scheme, width: 1280, to: output.appendingPathComponent("image-\(name).png"))
@@ -494,6 +530,18 @@ func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
     }
     try snapshot(AnnotationEditorWindow(url: .constant(nil), model: imageModel),
                  scheme: .light, width: 980, to: output.appendingPathComponent("image-compact.png"))
+    try snapshot(AnnotationEditorWindow(url: .constant(nil), model: imageModel),
+                 scheme: .dark, width: 980, to: output.appendingPathComponent("image-compact-dark.png"))
+    for tool in [AnnotationTool.text, .arrow, .blur] {
+        imageModel.selectTool(tool)
+        for scheme in [ColorScheme.light, .dark] {
+            let name = scheme == .light ? "light" : "dark"
+            try snapshot(AnnotationEditorWindow(url: .constant(nil), model: imageModel),
+                         scheme: scheme, width: 980,
+                         to: output.appendingPathComponent("image-compact-\(tool.rawValue)-\(name).png"))
+        }
+    }
+    imageModel.selectTool(.select)
     try snapshot(RecordingStudioContent(model: videoModel),
                  scheme: .light, width: 1100, to: output.appendingPathComponent("video-compact.png"))
     videoModel.selectedCueID = nil
@@ -503,6 +551,52 @@ func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
         try snapshot(RecordingStudioContent(model: videoModel), scheme: scheme, width: 1100,
                      to: output.appendingPathComponent("video-effects-\(name).png"))
     }
+    videoModel.add3DShot(at: 0)
+    for scheme in [ColorScheme.light, .dark] {
+        let name = scheme == .light ? "light" : "dark"
+        for width: CGFloat in [260, 320] {
+            try snapshot(Recording3DInspector(model: videoModel), scheme: scheme, width: width,
+                to: output.appendingPathComponent("video-3d-all-controls-\(name)-\(Int(width)).png"), height: 3400)
+            try snapshot(StudioInspector(model: videoModel, initialTab: .effects), scheme: scheme, width: width + 48,
+                to: output.appendingPathComponent("video-3d-control-shortcuts-\(name)-\(Int(width)).png"), height: 800)
+        }
+        try snapshot(Recording3DAutoScenePicker(model: videoModel, dismiss: {}), scheme: scheme, width: 360,
+            to: output.appendingPathComponent("video-auto-scene-\(name).png"), height: 390)
+        try snapshot(RecordingStudioContent(model: videoModel), scheme: scheme, width: 1100,
+                     to: output.appendingPathComponent("video-3d-\(name).png"))
+    }
+    if var closeUp = videoModel.selected3DShot {
+        closeUp.apply(.closeUp)
+        videoModel.update3DShot(closeUp)
+        for scheme in [ColorScheme.light, .dark] {
+            let name = scheme == .light ? "light" : "dark"
+            try snapshot(Recording3DInspector(model: videoModel), scheme: scheme, width: 320,
+                to: output.appendingPathComponent("video-3d-close-up-controls-\(name).png"), height: 3000)
+        }
+    }
+    if var focusShot = videoModel.selected3DShot {
+        for mode in [Recording3DBlur.Mode.radial, .directional, .tiltShift] {
+            focusShot.blur?.mode = mode
+            videoModel.update3DShot(focusShot)
+            for scheme in [ColorScheme.light, .dark] {
+                let name = scheme == .light ? "light" : "dark"
+                try snapshot(Recording3DBlurInspector(model: videoModel).padding(12), scheme: scheme, width: 260,
+                    to: output.appendingPathComponent("video-3d-blur-\(mode.rawValue)-\(name).png"), height: 560)
+            }
+        }
+    }
+    if var animated = videoModel.selected3DShot {
+        animated.tracks = [.init(property: .panX, keyframes: [
+            .init(position: 0, value: -0.2), .init(position: 0.5, value: 0.1), .init(position: 1, value: 0.3)
+        ])]
+        videoModel.update3DShot(animated)
+        for scheme in [ColorScheme.light, .dark] {
+            let name = scheme == .light ? "light" : "dark"
+            try snapshot(Recording3DKeyframeEditor(model: videoModel).padding(12), scheme: scheme, width: 260,
+                         to: output.appendingPathComponent("video-3d-keyframes-\(name).png"), height: 850)
+        }
+    }
+    if let id = videoModel.selected3DShotID { videoModel.remove3DShot(id: id) }
     videoModel.splitClip(at: videoModel.duration / 2)
     var firstClip = videoModel.clipTimeline.segments[0]
     firstClip.sourceStart += 0.2
@@ -770,8 +864,33 @@ private func checkGeneralEditorDefaults(movieURL: URL) async throws {
     print("PASS General defaults for new recordings/imports, image look parity, reset, and saved project preservation")
 }
 
+/// Static layout checks need no camera/microphone access or encoded video fixture.
 @MainActor
-private func snapshot<V: View>(
+func checkCaptureControlsUI() throws {
+    let sources = RecordingSourceCatalog.shared
+    precondition(!sources.containsSelection(.fullscreen, displayID: nil, windowID: nil))
+    precondition(!sources.containsSelection(.window, displayID: nil, windowID: nil),
+                 "Recording requires an explicit available source; opening setup must never start capture")
+    let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent(".build/editor-snapshots")
+    try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+    for scheme in [ColorScheme.light, .dark] {
+        let name = scheme == .light ? "light" : "dark"
+        try snapshot(RecordingSessionControls().studioGlass(cornerRadius: BarMetrics.cornerRadius, opacity: 0.78),
+                     scheme: scheme, width: 360,
+                     to: output.appendingPathComponent("recording-\(name).png"), height: 64)
+        try snapshot(RecordingOptionsView(), scheme: scheme, width: 680,
+                     to: output.appendingPathComponent("recording-setup-\(name).png"), height: 180)
+        try snapshot(RecordingPickerControls().padding(.horizontal, BarMetrics.horizontalPadding)
+            .frame(height: BarMetrics.height).studioGlass(cornerRadius: BarMetrics.cornerRadius, opacity: 0.78)
+            .background(EditorChrome.workspace), scheme: scheme, width: 760,
+                     to: output.appendingPathComponent("capture-\(name).png"), height: 100)
+    }
+    print("PASS missing recording source rejection and capture/setup/transport light and dark layouts")
+}
+
+@MainActor
+func snapshot<V: View>(
     _ view: V, scheme: ColorScheme, width: CGFloat, to url: URL, height: CGFloat = 800,
     interact: () -> Void = {}
 ) throws {
@@ -846,6 +965,95 @@ private func checkTransferToastPresentation(movieURL: URL) {
 
 
 @MainActor
+private func checkLibraryWindowToolbars(items: [MediaGalleryItem]) async throws {
+    for section in SettingsSection.allCases {
+        precondition(NSImage(systemSymbolName: section.icon, accessibilityDescription: nil) != nil,
+                     "Settings icons must exist in the system SF Symbols catalog")
+    }
+    let live = ProcessInfo.processInfo.environment["BETTERSHOT_CHECK_LIBRARY_WINDOWS"] == "1"
+    let activationPolicy = NSApp.activationPolicy()
+    defer { if live { NSApp.setActivationPolicy(activationPolicy) } }
+    if live {
+        precondition(CGPreflightScreenCaptureAccess(), "Live window checks require existing Screen Recording access")
+        NSApp.setActivationPolicy(.regular)
+    }
+    for scheme in [ColorScheme.light, .dark] {
+        for width: CGFloat in live ? [780, 1080] : [780] {
+            for (name, root) in [
+                ("gallery", AnyView(MediaGalleryContent(items: items))),
+                ("gallery-list", AnyView(MediaGalleryContent(items: items, listView: true))),
+                ("settings", AnyView(PreferencesView()))
+            ] {
+                let window = NSWindow(contentViewController: NSHostingController(rootView: root.environment(\.colorScheme, scheme)))
+                window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+                window.title = name == "settings" ? SettingsSection.general.title : MediaGalleryCategory.all.title
+                window.styleMask = [.titled, .closable, .resizable, .fullSizeContentView]
+                window.toolbarStyle = .unified
+                window.titlebarAppearsTransparent = true
+                window.collectionBehavior = [.moveToActiveSpace]
+                window.setContentSize(NSSize(width: width, height: 660))
+                window.isReleasedWhenClosed = false
+                defer { window.contentViewController = nil; window.close() }
+                window.contentView?.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(100))
+                precondition(window.toolbar?.items.contains(where: { $0.label == "Toggle Sidebar" }) == true,
+                             "Gallery and Settings must provide the native sidebar toggle")
+                // cacheDisplay cannot capture macOS's compositor-backed sidebar/search surfaces.
+                // Check the real window rather than mistaking white offscreen placeholders for UI.
+                if live {
+                    window.center()
+                    window.orderFrontRegardless()
+                    window.makeKeyAndOrderFront(nil)
+                    NSApp.activate(ignoringOtherApps: true)
+                    try await Task.sleep(for: .milliseconds(400))
+                    let path = ".build/editor-snapshots/\(name)-window-\(scheme)-\(Int(width)).png"
+                    for attempt in 0..<2 {
+                        let capture = Process()
+                        capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+                        capture.arguments = ["-x", "-o", "-l", String(window.windowNumber), path]
+                        try capture.run()
+                        capture.waitUntilExit()
+                        if capture.terminationStatus == 0 { break }
+                        precondition(attempt == 0, "Could not capture displayed \(name) window")
+                        // WindowServer can need another turn after changing spaces or appearance.
+                        window.orderFrontRegardless()
+                        try await Task.sleep(for: .milliseconds(500))
+                    }
+                    let bitmap = NSBitmapImageRep(data: try Data(contentsOf: URL(fileURLWithPath: path)))!
+                    if scheme == .dark {
+                        let color = bitmap.colorAt(x: bitmap.pixelsWide / 10, y: bitmap.pixelsHigh * 3 / 4)!.usingColorSpace(.deviceRGB)!
+                        precondition(max(color.redComponent, color.greenComponent, color.blueComponent) < 0.8,
+                                     "Displayed dark sidebars must not render as white blocks")
+                    }
+                    func clickSidebarToggle() {
+                        let button = window.toolbar!.items.first { $0.label == "Toggle Sidebar" }!.view!
+                        let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+                        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                            window.sendEvent(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
+                        }
+                    }
+                    func splitView(in view: NSView) -> NSSplitView? {
+                        (view as? NSSplitView) ?? view.subviews.lazy.compactMap { splitView(in: $0) }.first
+                    }
+                    let split = splitView(in: window.contentView!)!
+                    let sidebar = split.arrangedSubviews[0]
+                    precondition(!split.isSubviewCollapsed(sidebar))
+                    clickSidebarToggle()
+                    try await Task.sleep(for: .milliseconds(300))
+                    precondition(split.isSubviewCollapsed(sidebar), "Sidebar button must hide the sidebar")
+                    clickSidebarToggle()
+                    try await Task.sleep(for: .milliseconds(300))
+                    precondition(!split.isSubviewCollapsed(sidebar), "Sidebar button must restore the sidebar")
+                }
+            }
+        }
+    }
+    print("PASS native gallery/Settings sidebar toolbars in both appearances" + (live ? ", displayed compact/wide snapshots and dark material rendering" : ""))
+}
+
+@MainActor
 private func checkMediaGallery(imageURL: URL, movieURL: URL) async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -866,6 +1074,9 @@ private func checkMediaGallery(imageURL: URL, movieURL: URL) async throws {
         fileName: "Demo.mov", pixelWidth: 1920, pixelHeight: 1080, kind: .video,
         cloudURL: "https://example.com/s/video", recordingSessionPath: session.directoryURL.path)
     let entries = MediaGalleryItem.collect(history: history, edits: [image, video], projects: [project])
+    precondition(MediaGalleryCategory.all.kind == nil)
+    precondition(MediaGalleryCategory.screenshots.kind == .screenshot)
+    precondition(MediaGalleryCategory.videos.kind == .recording)
     precondition(entries.count == 2, "Capture, edited history, and package must not duplicate media")
     precondition(entries.first { $0.kind == .recording }!.editorURL == session.directoryURL,
                  "Videos must reopen their editable project")
@@ -882,6 +1093,8 @@ private func checkMediaGallery(imageURL: URL, movieURL: URL) async throws {
     precondition(ScreenshotHistoryStore.shouldKeep(image), "Missing files must retain cloud links on reload")
     var missing = image
     missing.cloudURL = nil
+    precondition(ScreenshotHistoryStore.shouldKeep(missing), "An available original must preserve its editor history")
+    missing.sourceCapturePath = nil
     precondition(!ScreenshotHistoryStore.shouldKeep(missing))
     for value in ["file:///tmp/file", "javascript:alert(1)", "https://", "not a link"] {
         precondition(MediaGalleryItem.cloudLink(value) == nil)
@@ -889,8 +1102,53 @@ private func checkMediaGallery(imageURL: URL, movieURL: URL) async throws {
     let cloudOnly = MediaGalleryItem(id: "cloud-only", title: "Cloud screenshot", createdAt: Date(),
         kind: .screenshot, localURL: root.appendingPathComponent("missing.png"),
         editorURL: root.appendingPathComponent("missing.png"), cloudURL: URL(string: "https://example.com/s/missing"))
+    precondition(cloudOnly.open(cloud: false) != nil, "A missing local file must report an actionable opening error")
     precondition(MediaGalleryItem.filtered([cloudOnly], kind: nil, cloud: false, search: "").isEmpty)
     precondition(MediaGalleryItem.filtered([cloudOnly], kind: nil, cloud: true, search: "").count == 1)
+    let localImage = MediaGalleryItem(id: "local-image", title: "Local screenshot", createdAt: Date(),
+        kind: .screenshot, localURL: imageURL, editorURL: imageURL)
+    let localVideo = MediaGalleryItem(id: "local-video", title: "Local video", createdAt: Date(),
+        kind: .recording, localURL: movieURL, editorURL: movieURL)
+    let cloudVideo = MediaGalleryItem(id: "cloud-video", title: "Cloud video", createdAt: Date(),
+        kind: .recording, localURL: root.appendingPathComponent("missing.mp4"),
+        editorURL: root.appendingPathComponent("missing.mp4"), cloudURL: URL(string: "https://example.com/s/missing-video"))
+    let classified = entries + [localImage, localVideo, cloudOnly, cloudVideo]
+    for category in MediaGalleryCategory.allCases {
+        let matches = MediaGalleryItem.filtered(classified, kind: category.kind, cloud: category.cloud, search: "")
+        precondition(matches.count == (category.kind == nil ? 4 : 2), "Each local/cloud and image/video sidebar filter must classify independently")
+        precondition(matches.allSatisfy { category.cloud ? $0.cloudURL != nil : $0.hasLocalFile })
+    }
+    for ext in ["MOV", "mp4", "m4v", "avi"] {
+        let legacy = ScreenshotHistoryItem(id: UUID(), createdAt: Date(), updatedAt: Date(),
+            fileName: "Legacy.\(ext)", pixelWidth: 1920, pixelHeight: 1080,
+            cloudURL: "https://example.com/s/legacy")
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(legacy)) as! [String: Any]
+        for storedKind in [nil, "image"] as [String?] {
+            json["kind"] = storedKind
+            let decoded = try JSONDecoder().decode(ScreenshotHistoryItem.self, from: JSONSerialization.data(withJSONObject: json))
+            precondition(decoded.kind == .video && decoded.isVideo, "Legacy videos must not default to screenshots")
+            let recovered = MediaGalleryItem.collect(history: HistoryStore(storageDirectory: root.appendingPathComponent("empty")), edits: [decoded], projects: [])
+            precondition(MediaGalleryItem.filtered(recovered, kind: .recording, cloud: true, search: "").count == 1)
+            precondition(PreviewOverlay.isVideo(URL(fileURLWithPath: "Legacy.\(ext)")))
+        }
+    }
+    let inferredHistory = HistoryStore(storageDirectory: root.appendingPathComponent("inferred"))
+    precondition(inferredHistory.referenceCapture(at: movieURL)?.kind == .recording)
+    precondition(inferredHistory.importCapture(from: movieURL, deleteSource: false)?.kind == .recording)
+    let staleRecord = CaptureRecord(filename: movieURL.lastPathComponent, pixelWidth: 1920, pixelHeight: 1080,
+        sourcePath: movieURL.path)
+    try JSONEncoder().encode([staleRecord]).write(to: root.appendingPathComponent("inferred/history.json"))
+    precondition(HistoryStore(storageDirectory: root.appendingPathComponent("inferred")).records.first?.kind == .recording)
+    precondition(HistoryStore.decodeThumbnail(.init(url: movieURL, kind: .screenshot)) != nil,
+                 "Video thumbnail decoding must recover stale image metadata")
+    try FileManager.default.copyItem(at: movieURL, to: session.finalURL)
+    precondition(RecordingSession.sessionDirectory(containing: session.finalURL) == session.directoryURL)
+    precondition(RecordingSession.sessionDirectory(containing: session.cameraURL) == nil)
+    let rendered = MediaGalleryItem.collect(history: history, edits: [video], projects: [project]).first { $0.kind == .recording }!
+    precondition(rendered.previewURL == session.finalURL)
+    try FileManager.default.removeItem(at: session.finalURL)
+    precondition(rendered.hasLocalFile && rendered.previewURL == session.screenURL,
+                 "Invalidating a flattened video must keep the local recording available")
     for item in entries {
         precondition(HistoryStore.decodeThumbnail(.init(url: item.localURL, kind: item.kind), maxSize: 480) != nil,
                      "Both screenshot and video gallery sources must decode")
@@ -900,7 +1158,10 @@ private func checkMediaGallery(imageURL: URL, movieURL: URL) async throws {
     try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
     let configuration = ProcessInfo.processInfo.environment["BETTERSHOT_BUILD_CONFIGURATION"] ?? "Debug"
     let galleryBundle = Bundle(url: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("\(ProcessInfo.processInfo.environment["BETTERSHOT_DERIVED_DIR"] ?? ".build-test")/Build/Products/\(configuration)/BetterShot.app"))!
+        .appendingPathComponent("\(ProcessInfo.processInfo.environment["BETTERSHOT_DERIVED_DATA"] ?? ".build-test")/Build/Products/\(configuration)/BetterShot.app"))!
+    let previousIcon = NSApp.applicationIconImage
+    NSApp.applicationIconImage = galleryBundle.image(forResource: "AppIcon")
+    defer { NSApp.applicationIconImage = previousIcon }
     var snapshotItems = entries
     for sample in OnboardingSample.allCases {
         let url = sample.sourceURL(in: galleryBundle)!
@@ -930,11 +1191,20 @@ private func checkMediaGallery(imageURL: URL, movieURL: URL) async throws {
             try bitmap.representation(using: .png, properties: [:])!.write(
                 to: output.appendingPathComponent("gallery-\(scheme)-\(Int(width)).png"))
         }
+        for category in [MediaGalleryCategory.videos, .cloudScreenshots, .cloudVideos] {
+            try snapshot(MediaGalleryContent(items: classified, category: category), scheme: scheme, width: 780,
+                to: output.appendingPathComponent("gallery-\(category.rawValue)-\(scheme).png"), height: 620)
+        }
+        try snapshot(MediaGalleryContent(items: snapshotItems, listView: true), scheme: scheme, width: 780,
+            to: output.appendingPathComponent("gallery-list-\(scheme).png"), height: 520)
+        try snapshot(MediaGalleryCard(item: snapshotItems[0], cloud: false, selected: true), scheme: scheme, width: 148,
+            to: output.appendingPathComponent("gallery-selected-\(scheme).png"), height: 160)
         try snapshot(MediaGalleryCard(item: cloudOnly, cloud: true), scheme: scheme, width: 260,
             to: output.appendingPathComponent("gallery-cloud-\(scheme).png"), height: 400)
         try snapshot(MediaGalleryContent(items: []), scheme: scheme, width: 780,
             to: output.appendingPathComponent("gallery-empty-\(scheme).png"), height: 520)
     }
+    try await checkLibraryWindowToolbars(items: snapshotItems)
     try await checkGalleryDeletion(imageURL: imageURL, movieURL: movieURL, root: root)
     print("PASS gallery source merging, project reopening, local/cloud/type/search filters, missing local shares, and compact/light/dark layouts")
 }
@@ -1108,6 +1378,7 @@ private func checkPreviewOverlay(imageURL: URL) async throws {
         overlay.refreshSettings()
     }
     AppPreferences.overlayDismissDelay = 0.05
+    AppPreferences.overlayCardSize = .medium
     overlay.show(url: imageURL)
     let panel = NSApp.windows.first { $0.identifier?.rawValue == "BetterShot.CaptureOverlay" }!
     precondition(panel.canBecomeKey && !panel.canBecomeMain, "Overlay actions must support native keyboard focus")
@@ -1158,7 +1429,7 @@ private func checkPreviewOverlay(imageURL: URL) async throws {
     for scheme in [ColorScheme.light, .dark] {
         let name = scheme == .light ? "light" : "dark"
         let bundle = Bundle(url: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("\(ProcessInfo.processInfo.environment["BETTERSHOT_DERIVED_DIR"] ?? ".build-test")/Build/Products/\(ProcessInfo.processInfo.environment["BETTERSHOT_BUILD_CONFIGURATION"] ?? "Debug")/BetterShot.app"))!
+            .appendingPathComponent("\(ProcessInfo.processInfo.environment["BETTERSHOT_DERIVED_DATA"] ?? ".build-test")/Build/Products/\(ProcessInfo.processInfo.environment["BETTERSHOT_BUILD_CONFIGURATION"] ?? "Debug")/BetterShot.app"))!
         try snapshot(OverlaySettingsTab(resourceBundle: bundle), scheme: scheme,
                      width: 540, to: output.appendingPathComponent("overlay-settings-\(name).png"), height: 1050)
         try snapshot(PreferencesView(selection: .overlay), scheme: scheme, width: 780,
@@ -1320,4 +1591,119 @@ func checkSnapCapture() async throws {
         }
     }
     print("PASS Snap Capture overlay drag, tight content crop, Retina margins, Return, Escape, PNG roundtrip and light/dark snapshots")
+}
+
+/// Displays production editor views and exercises AppKit events, not offscreen snapshots.
+@MainActor
+private func checkEditorWindowInteractions(imageURL: URL, movieURL: URL) async throws {
+    let defaults = UserDefaults.standard
+    let keys = [AppPreferences.editorOpensFullScreenKey, AppPreferences.showInDockKey,
+                AppPreferences.showInMenuBarKey, "bs_openEditorAfterCapture", "bs_copyAfterSave",
+                "bs_selfTimerDelay", AfterCaptureAction.save.storageKey(for: .screenshot),
+                BetterShotPreferences.recordingCameraDeviceIDKey]
+    let savedPreferences = keys.map { defaults.object(forKey: $0) }
+    let previousApp = NSWorkspace.shared.frontmostApplication
+    let policy = NSApp.activationPolicy()
+    let presenter = PreviewPanelPresenter.shared
+    let oldAnnotate = presenter.onAnnotate
+    let oldVideo = presenter.onEditVideo
+    let tray = MenuBarPopoverController.shared
+    var editor: NSWindow?
+    defer {
+        editor?.contentViewController = nil
+        editor?.close()
+        tray.closePopover()
+        tray.setVisible(false)
+        RecordingBarPresenter.shared.dismiss()
+        PreviewOverlay.shared.clearAll()
+        presenter.onAnnotate = oldAnnotate
+        presenter.onEditVideo = oldVideo
+        for (key, value) in zip(keys, savedPreferences) { defaults.set(value, forKey: key) }
+        NSApp.setActivationPolicy(policy)
+        previousApp?.activate()
+    }
+    defaults.set(false, forKey: AppPreferences.showInDockKey)
+    defaults.set(true, forKey: AppPreferences.showInMenuBarKey)
+    defaults.set(false, forKey: "bs_openEditorAfterCapture")
+    defaults.set(false, forKey: "bs_copyAfterSave")
+    defaults.set(0, forKey: "bs_selfTimerDelay")
+    defaults.set(false, forKey: AfterCaptureAction.save.storageKey(for: .screenshot))
+    defaults.set("", forKey: BetterShotPreferences.recordingCameraDeviceIDKey)
+    AppActivationPolicy.applyVisibility()
+    func open(_ content: AnyView) {
+        let window = NSWindow(contentViewController: NSHostingController(rootView: content))
+        window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+        window.isReleasedWhenClosed = false
+        window.setContentSize(NSSize(width: 1100, height: 760))
+        window.center()
+        editor = window
+        window.makeKeyAndOrderFront(nil)
+    }
+    presenter.onAnnotate = { open(AnyView(AnnotationEditorWindow(url: .constant($0)))) }
+    presenter.onEditVideo = { open(AnyView(RecordingStudioWindow(url: .constant($0)))) }
+    for source in [imageURL, movieURL] {
+        for automatic in [false, true] {
+            defaults.set(automatic, forKey: AppPreferences.editorOpensFullScreenKey)
+            PreviewOverlay.shared.show(url: source)
+            PreviewOverlay.shared.openAnnotateEditor(for: source)
+            try await Task.sleep(for: .seconds(2))
+            let window = editor!
+            precondition(NSApp.isActive && window.isKeyWindow, "Opening from the overlay must focus the editor")
+            precondition(window.collectionBehavior.contains(.fullScreenPrimary))
+            precondition(window.styleMask.contains(.fullScreen) == automatic,
+                         "Editors honor the automatic full-screen preference")
+            if !automatic {
+                window.toggleFullScreen(nil)
+                try await Task.sleep(for: .seconds(2))
+                precondition(window.styleMask.contains(.fullScreen), "Manual full screen works with the default disabled")
+            }
+            let probe = EditorClickProbe(frame: NSRect(x: 10, y: 10, width: 20, height: 20))
+            window.contentView!.addSubview(probe)
+            tray.openPopover()
+            let panel = NSApp.windows.first { $0.identifier?.rawValue == "BetterShot.MenuBar" && $0.isVisible }!
+            precondition(tray.isOpen)
+            let point = probe.convert(NSPoint(x: 10, y: 10), to: nil)
+            NSApp.sendEvent(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
+            precondition(!tray.isOpen && !panel.isVisible && probe.clicks == 1,
+                         "An editor click dismisses the tray immediately and still reaches the editor")
+            probe.removeFromSuperview()
+            tray.openPopover()
+            NSApp.sendEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false, keyCode: 53)!)
+            precondition(!tray.isOpen, "Escape dismisses the tray")
+            tray.openPopover()
+            RecordingBarPresenter.shared.showPicker(recordingOptions: true)
+            precondition(!tray.isOpen && RecordingBarPresenter.shared.showsRecordingOptions,
+                         "Recording options close the tray while an editor is full screen")
+            await RecordingBarPresenter.shared.hidePickerForCapture()
+            tray.openPopover()
+            if CGPreflightScreenCaptureAccess() {
+                let previous = CaptureOrchestrator.shared.lastCaptureURL
+                await CaptureOrchestrator.shared.performCapture(.fullscreen, on: window.screen)
+                precondition(!tray.isOpen && CaptureOrchestrator.shared.lastCaptureURL != previous,
+                             "Screenshot capture completes from the tray with a full-screen editor open")
+            } else {
+                await RecordingBarPresenter.shared.hidePickerForCapture()
+                precondition(!tray.isOpen)
+                print("SKIP real screenshot capture: Screen Recording permission is unavailable")
+            }
+            PreviewOverlay.shared.clearAll()
+            window.toggleFullScreen(nil)
+            try await Task.sleep(for: .seconds(2))
+            precondition(!window.styleMask.contains(.fullScreen), "Editors can leave full screen")
+            window.contentViewController = nil
+            window.close()
+            editor = nil
+        }
+    }
+    print("PASS native image/video editor activation, automatic/manual full screen, tray dismissal/click-through/Escape, and capture handoff")
+}
+
+private final class EditorClickProbe: NSView {
+    var clicks = 0
+    override func mouseDown(with event: NSEvent) { clicks += 1 }
 }

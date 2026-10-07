@@ -38,6 +38,7 @@ extension ShortcutService {
         case openSettings = 14
         // 15 is reserved: onboarding is available only during initial setup.
         case unpinAll = 16
+        case editClipboard = 17
         case region = 1
         case fullscreen = 2
         case window = 3
@@ -88,6 +89,10 @@ extension ShortcutService {
         case imageActualSize = 131
         case imageIncreaseSize = 132
         case imageDecreaseSize = 133
+        case imageRotateLeft = 134
+        case imageRotateRight = 135
+        case imageFlipHorizontal = 136
+        case imageFlipVertical = 137
         case videoSave = 200
         case videoExport = 201
         case videoShare = 202
@@ -117,6 +122,7 @@ extension ShortcutService {
             case .openImage: "Open Image from File"
             case .openSettings: "Open Settings"
             case .unpinAll: "Unpin All Captures"
+            case .editClipboard: "Edit Clipboard Image or Last Capture"
             case .region: "Capture Region"
             case .fullscreen: "Capture Fullscreen"
             case .window: "Capture Window"
@@ -167,6 +173,10 @@ extension ShortcutService {
             case .imageActualSize: "Actual Size"
             case .imageIncreaseSize: "Increase Tool Size"
             case .imageDecreaseSize: "Decrease Tool Size"
+            case .imageRotateLeft: "Rotate Image Left"
+            case .imageRotateRight: "Rotate Image Right"
+            case .imageFlipHorizontal: "Flip Image Horizontal"
+            case .imageFlipVertical: "Flip Image Vertical"
             case .videoSave: "Save Project"
             case .videoExport: "Export Video"
             case .videoShare: "Share to Cloud"
@@ -191,13 +201,13 @@ extension ShortcutService {
 
         var group: Group {
             switch self {
-            case .recording, .mediaGallery, .restoreLastCapture, .pinLastCapture, .openImage, .openSettings, .unpinAll: .general
+            case .recording, .mediaGallery, .restoreLastCapture, .pinLastCapture, .openImage, .openSettings, .unpinAll, .editClipboard: .general
             case .snapCapture, .region, .fullscreen, .window, .previousRegion, .timedRegion, .regionCopy, .regionSave, .regionEdit, .regionPin: .screenshots
             case .ocr, .ocrSingleLine, .colorPicker: .ocr
             case .recordingOptions, .recordArea, .stopRecording, .pauseRecording, .restartRecording, .discardRecording: .recording
             case .togglePreviews, .savePreviews, .closePreviews: .preview
             case .imageBackground, .imageSelect, .imageCrop, .imageRectangle, .imageFilledRectangle, .imageEllipse, .imageLine, .imageArrow, .imageFreehand, .imageCounter, .imageText, .imageHighlight, .imagePixelate, .imageBlur: .imageTools
-            case .imageSave, .imageExport, .imageCopy, .imageShare, .imageUndo, .imageRedo, .imageSelectAll, .imageDelete, .imageZoomIn, .imageZoomOut, .imageFit, .imageActualSize, .imageIncreaseSize, .imageDecreaseSize: .imageEditing
+            case .imageSave, .imageExport, .imageCopy, .imageShare, .imageUndo, .imageRedo, .imageSelectAll, .imageDelete, .imageZoomIn, .imageZoomOut, .imageFit, .imageActualSize, .imageIncreaseSize, .imageDecreaseSize, .imageRotateLeft, .imageRotateRight, .imageFlipHorizontal, .imageFlipVertical: .imageEditing
             case .videoSave, .videoExport, .videoShare, .videoPlay, .videoStart, .videoEnd, .videoSplitTool, .videoCut, .videoDelete, .videoUndo, .videoRedo, .videoZoomIn, .videoZoomOut, .videoFit, .videoCrop, .videoBlur, .videoPixelate, .videoInspector, .videoAddZoom: .videoEditing
             }
         }

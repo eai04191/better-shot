@@ -102,7 +102,7 @@ test: generate ## Run isolated unit, regression, editor and export checks withou
 	@xcodebuild test -project $(PROJECT) -scheme BetterShotLogicTests \
 		-configuration $(CONFIG_DEBUG) -derivedDataPath $(TEST_DIR) \
 		-destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO 2>&1 | tail -8
-	@BETTERSHOT_DERIVED_DIR="$(TEST_DIR)" bash Tests/run-exports.sh
+	@BETTERSHOT_DERIVED_DATA="$(TEST_DIR)" bash Tests/run-exports.sh
 
 test-snap: generate ## Build and check Snap offscreen without moving focus or the pointer
 	@xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
@@ -111,7 +111,7 @@ test-snap: generate ## Build and check Snap offscreen without moving focus or th
 	@xcodebuild test -project $(PROJECT) -scheme BetterShotLogicTests \
 		-configuration $(CONFIG_DEBUG) -derivedDataPath $(TEST_DIR) \
 		-destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO 2>&1 | tail -8
-	@BETTERSHOT_CHECK_SNAP_ONLY=1 BETTERSHOT_DERIVED_DIR="$(TEST_DIR)" bash Tests/run-exports.sh
+	@BETTERSHOT_CHECK_SNAP_ONLY=1 BETTERSHOT_DERIVED_DATA="$(TEST_DIR)" bash Tests/run-exports.sh
 
 test-build: clean release ## Full clean + release build
 	@echo "==> Test build passed."

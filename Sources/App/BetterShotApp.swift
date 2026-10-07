@@ -8,6 +8,7 @@ struct BetterShotApp: App {
     init() {
         if ProcessInfo.processInfo.environment["BETTERSHOT_TESTING"] != "1" {
             OnboardingState.prepareForLaunch()
+            ReleaseNotes.prepareForLaunch(current: ReleaseNotesWindowController.currentVersion)
         }
     }
 
@@ -22,13 +23,13 @@ struct BetterShotApp: App {
         WindowGroup("BetterShot Annotate", id: "ANNOTATION_EDITOR", for: URL.self) { value in
             AnnotationEditorWindow(url: value)
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
         .defaultSize(width: 1100, height: 760)
 
         WindowGroup("BetterShot Recording Editor", id: "VIDEO_EDITOR", for: URL.self) { value in
             RecordingStudioWindow(url: value)
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
         .defaultSize(width: 1360, height: 860)
     }
 
@@ -62,7 +63,7 @@ struct BetterShotApp: App {
                         ToastWindow.shared.show(message: "Recording saved!", on: ActiveDisplayResolver.screen(for: displayID))
                     } catch {
                         ToastWindow.shared.show(
-                            title: "Couldn't save recording",
+                            isError: true, title: "Couldn't save recording",
                             message: error.localizedDescription,
                             systemIcon: "exclamationmark.triangle",
                             on: ActiveDisplayResolver.screen(for: displayID)

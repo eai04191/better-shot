@@ -77,7 +77,6 @@ final class CountdownOverlay {
         guard seconds > 0 else { return }
 
         dismiss()
-
         let countdownModel = CountdownModel()
         countdownModel.currentNumber = seconds
         countdownModel.totalSeconds = Double(seconds)

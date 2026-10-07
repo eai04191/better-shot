@@ -25,51 +25,113 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .general: "gearshape"
+        case .general: "gear"
         case .capture: "camera.viewfinder"
-        case .overlay: "rectangle.on.rectangle"
-        case .recording: "record.circle"
-        case .shortcuts: "command"
-        case .sharing: "link"
+        case .overlay: "macwindow.on.rectangle"
+        case .recording: "video.fill"
+        case .shortcuts: "keyboard"
+        case .sharing: "icloud.and.arrow.up"
         case .about: "info.circle"
+        }
+    }
+
+    var iconColor: Color {
+        switch self {
+        case .general: Color(nsColor: .systemGray)
+        case .capture: Color(nsColor: .systemOrange)
+        case .overlay: Color(nsColor: .systemIndigo)
+        case .recording: Color(nsColor: .systemRed)
+        case .shortcuts: Color(nsColor: .systemPurple)
+        case .sharing: Color(nsColor: .systemBlue)
+        case .about: Color(nsColor: .systemGray)
         }
     }
 }
 
 struct PreferencesView: View {
     @State private var selection: SettingsSection
+    @State private var search = ""
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
+    var onSelectionChange: (SettingsSection) -> Void = { _ in }
 
-    init(selection: SettingsSection = .general) {
+    init(selection: SettingsSection = .general, onSelectionChange: @escaping (SettingsSection) -> Void = { _ in }) {
         _selection = State(initialValue: selection)
+        self.onSelectionChange = onSelectionChange
     }
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $selection) {
-                Section("Preferences") {
-                    ForEach(SettingsSection.preferenceGroup, content: row)
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            VStack(spacing: 0) {
+                SettingsSearchField(text: $search)
+                    .frame(height: 24)
+                    .padding(12)
+                List(selection: $selection) {
+                    Section {
+                        HStack(spacing: 10) {
+                            Image(nsImage: NSImage(named: "AppIcon") ?? NSApp.applicationIconImage)
+                                .resizable().frame(width: 36, height: 36)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("BetterShot").font(.headline).foregroundStyle(.primary)
+                                Text("About & Updates").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 6)
+                        .tag(SettingsSection.about)
+                    }
+                    Section("Settings") {
+                        ForEach(SettingsSection.preferenceGroup.filter {
+                            search.isEmpty || $0.title.localizedStandardContains(search)
+                        }, content: row)
+                        if !search.isEmpty && !SettingsSection.preferenceGroup.contains(where: {
+                            $0.title.localizedStandardContains(search)
+                        }) {
+                            Text("No matching sections").font(.callout).foregroundStyle(.secondary)
+                        }
+                    }
                 }
-                Section {
-                    row(.about)
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
+            }
+            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
+            .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    Button("Toggle Sidebar", systemImage: "sidebar.left") {
+                        columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+                    }
+                    .help("Show or hide the sidebar")
                 }
             }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 184, ideal: 196, max: 240)
         } detail: {
             detail
                 .buttonStyle(EditorButtonStyle(bordered: true))
+                .toggleStyle(.switch)
+                .scrollContentBackground(.hidden)
+                .scrollIndicators(.hidden)
+                .frame(maxWidth: 720)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(nsColor: .windowBackgroundColor))
                 .navigationTitle(selection.title)
         }
         .navigationSplitViewStyle(.balanced)
+        .onChange(of: selection) { _, section in onSelectionChange(section) }
         .tint(EditorChrome.accent)
         .accentColor(EditorChrome.accent)
         .frame(minWidth: 780, minHeight: 620)
     }
 
     private func row(_ section: SettingsSection) -> some View {
-        Label(section.title, systemImage: section.icon)
-            .tag(section)
+        Label {
+            Text(section.title).foregroundStyle(.primary)
+        } icon: {
+            Image(systemName: section.icon)
+                .font(.system(size: 15, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.white)
+                .frame(width: 24, height: 24)
+                .background(section.iconColor, in: RoundedRectangle(cornerRadius: 6))
+        }
+        .padding(.vertical, 1)
+        .tag(section)
     }
 
     @ViewBuilder
@@ -86,21 +148,61 @@ struct PreferencesView: View {
     }
 }
 
+private struct SettingsSearchField: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = "Search sections"
+        field.setAccessibilityLabel("Search settings sections")
+        field.delegate = context.coordinator
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        context.coordinator.text = $text
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            text.wrappedValue = field.stringValue
+        }
+    }
+}
+
 // MARK: - General
 
 struct GeneralSettingsTab: View {
+    @AppStorage(AppPreferences.presentationModeKey) private var mode = CapturePresentationMode.normal
+    @AppStorage(AppPreferences.showCaptureBarAtLaunchKey) private var showCaptureBarAtLaunch = true
     @AppStorage(AppPreferences.showInDockKey) private var showInDock = false
     @AppStorage(AppPreferences.showInMenuBarKey) private var showInMenuBar = true
+    @AppStorage(NotchShelfStore.colorsKey) private var clipboardColors = true
+    @AppStorage(NotchShelfStore.enabledKey) private var clipboardHistory = false
+    @State private var confirmClearShelf = false
     @State private var loginStatus: SMAppService.Status = .notRegistered
     @State private var loginError: String?
 
     @AppStorage("bs_appAppearance") private var appAppearanceRaw: String = AppAppearance.system.rawValue
     @AppStorage("bs_saveDirectory") private var saveDir = NSHomeDirectory() + "/Desktop"
     @AppStorage("bs_copyAfterSave") private var copyAfterSave = true
+    @AppStorage(AfterCaptureAction.save.storageKey(for: .screenshot)) private var automaticallySaveScreenshots = false
     @AppStorage("bs_playSound") private var playSound = true
     @AppStorage("bs_exportFormat") private var exportFormatRaw: String = ExportFormat.png.rawValue
     @AppStorage("bs_exportQuality") private var exportQuality: Double = 0.9
     @AppStorage("bs_historyRetentionLimit") private var historyRetentionLimit = 100
+    @AppStorage(ScreenshotFileNaming.templateKey) private var fileNameTemplate = ScreenshotFileNaming.defaultTemplate
+    @AppStorage(ScreenshotFileNaming.counterKey) private var fileNameCounter = 1
+    /// Held rather than computed in `body`: `{hex:8}` would otherwise reshuffle
+    /// on every unrelated redraw and read as a glitch.
+    @State private var fileNamePreview = ""
 
     @AppStorage(AppPreferences.editorOpensFullScreenKey) private var editorFullScreen = true
     @State private var defaultConfig = AppPreferences.defaultBeautifierConfig
@@ -129,11 +231,42 @@ struct GeneralSettingsTab: View {
 
     var body: some View {
         Form {
+            Section {
+                Picker("Presentation", selection: $mode) {
+                    ForEach(CapturePresentationMode.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("Capture Mode")
+            } footer: {
+                Text("The capture and recording bars stay floating in both modes. Notch moves capture previews, quick editing, and saved shelf items to the top of your display. Displays without a notch use a floating preview panel at the top.")
+            }
+
+            Section("Notch Shelf") {
+                Toggle("Keep copied colors in Notch Mode", isOn: $clipboardColors)
+                    .onChange(of: clipboardColors) { NotchShelfStore.shared.refreshMonitoring() }
+                Text("Copied hex colors, such as #8B5CF6 or #F80, appear as swatches in the shelf. Only standalone color codes are collected.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Keep copied text in Notch Mode", isOn: $clipboardHistory)
+                    .onChange(of: clipboardHistory) { NotchShelfStore.shared.refreshMonitoring() }
+                Text("OCR text and colors are saved only in Notch Mode. Text and color history keeps up to 50 items locally. Copies marked private by their source app are skipped; unmarked sensitive text can still be saved. Turning history off stops new copies; Clear removes saved shelf text and transcripts.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Clear Shelf Text…", role: .destructive) { confirmClearShelf = true }
+                    .alert("Clear shelf text and transcripts?", isPresented: $confirmClearShelf) {
+                        Button("Cancel", role: .cancel) {}
+                        Button("Clear", role: .destructive) { NotchShelfStore.shared.clear() }
+                    } message: { Text("Screenshot files and recordings stay in your library.") }
+                if let error = NotchShelfStore.shared.error {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
+            }
+
             Section("Startup") {
                 Toggle("Launch at Login", isOn: Binding(
                     get: { loginStatus == .enabled || loginStatus == .requiresApproval },
                     set: setLaunchAtLogin
                 ))
+                Toggle("Show the capture bar at launch", isOn: $showCaptureBarAtLaunch)
                 if loginStatus == .requiresApproval {
                     Text("Allow BetterShot in System Settings → General → Login Items & Extensions.")
                         .font(.callout).foregroundStyle(.secondary)
@@ -201,13 +334,71 @@ struct GeneralSettingsTab: View {
                     }
                 }
 
+                Toggle("Automatically save screenshots to this folder", isOn: $automaticallySaveScreenshots)
+
+                LabeledContent("File name") {
+                    HStack(spacing: 6) {
+                        TextField("File name", text: $fileNameTemplate, prompt: Text(ScreenshotFileNaming.defaultTemplate))
+                            .labelsHidden()
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.callout, design: .monospaced))
+                            .multilineTextAlignment(.leading)
+                            .frame(minWidth: 210)
+
+                        Menu {
+                            ForEach(ScreenshotFileNaming.menuGroups) { group in
+                                Section(group.title) {
+                                    ForEach(group.items) { item in
+                                        Button(item.title) { fileNameTemplate += item.token }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help("Add a date, a random string, or a counter")
+                        .accessibilityLabel("Insert into the file name")
+                    }
+                }
+
+                LabeledContent("Example") {
+                    Text(fileNamePreview)
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+
+                if ScreenshotFileNaming.usesCounter(fileNameTemplate) {
+                    LabeledContent("Next number") {
+                        HStack(spacing: 8) {
+                            Text("\(fileNameCounter)")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                            Button("Reset") { fileNameCounter = 1 }
+                                .controlSize(.small)
+                                .disabled(fileNameCounter == 1)
+                        }
+                    }
+                }
+
                 Toggle("Copy screenshots to the clipboard automatically", isOn: $copyAfterSave)
                 Toggle("Play a shutter sound", isOn: $playSound)
             } header: {
                 Text("Saving")
             } footer: {
-                Text("New screenshots and exported recordings both land here. The default is your Desktop.")
+                Text("Save and Export use this folder. Enable automatic saving to save normal screenshots immediately. Capture & Copy, Edit, and Pin shortcuts do not automatically save. The + button adds a date, a random string, or a counter to file names.")
             }
+            .onAppear(perform: refreshFileNamePreview)
+            .onChange(of: fileNameTemplate) { _, _ in refreshFileNamePreview() }
+            .onChange(of: exportFormatRaw) { _, _ in refreshFileNamePreview() }
+            // Reset, and any capture that lands while Settings is open, move the
+            // counter. Without this the example keeps showing the old number.
+            .onChange(of: fileNameCounter) { _, _ in refreshFileNamePreview() }
 
             Section {
                 Picker("Save as", selection: exportFormat) {
@@ -217,7 +408,7 @@ struct GeneralSettingsTab: View {
                 }
                 .pickerStyle(.segmented)
 
-                if exportFormatRaw == ExportFormat.jpeg.rawValue {
+                if (ExportFormat(rawValue: exportFormatRaw) ?? .png).usesLossyQuality {
                     InspectorSlider("Quality", value: Binding(
                         get: { CGFloat(exportQuality) },
                         set: { exportQuality = (Double($0) * 20).rounded() / 20 }
@@ -226,9 +417,14 @@ struct GeneralSettingsTab: View {
             } header: {
                 Text("File Format")
             } footer: {
-                Text(exportFormatRaw == ExportFormat.jpeg.rawValue
-                     ? "JPEG files are much smaller, and a little detail is lost every time one is saved."
-                     : "PNG keeps every pixel exactly as captured, which is the safer default for screenshots of text.")
+                switch ExportFormat(rawValue: exportFormatRaw) ?? .png {
+                case .jpeg:
+                    Text("JPEG files are much smaller, and a little detail is lost every time one is saved.")
+                case .webp:
+                    Text("WebP produces smaller files than JPEG at similar quality, with broad browser and editor support.")
+                case .png:
+                    Text("PNG keeps every pixel exactly as captured, which is the safer default for screenshots of text.")
+                }
             }
 
             Section {
@@ -290,6 +486,7 @@ struct GeneralSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .onChange(of: mode) { NotchPresenter.shared.refreshMode() }
         .onAppear(perform: refreshLoginStatus)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshLoginStatus()
@@ -319,6 +516,14 @@ struct GeneralSettingsTab: View {
         refreshLoginStatus()
     }
 
+    private func refreshFileNamePreview() {
+        fileNamePreview = ScreenshotFileNaming.fileName(
+            template: fileNameTemplate,
+            extension: (ExportFormat(rawValue: exportFormatRaw) ?? .png).fileExtension,
+            context: .init(counter: fileNameCounter)
+        )
+    }
+
     private func chooseSaveDirectory() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -333,6 +538,7 @@ struct GeneralSettingsTab: View {
     }
 
     private func restoreDefaults() {
+        mode = .normal
         showInMenuBar = true
         showInDock = false
         AppActivationPolicy.applyVisibility()
@@ -341,9 +547,13 @@ struct GeneralSettingsTab: View {
         AppPreferences.applyAppearance()
         saveDir = NSHomeDirectory() + "/Desktop"
         copyAfterSave = true
+        automaticallySaveScreenshots = false
         playSound = true
         exportFormatRaw = ExportFormat.png.rawValue
         exportQuality = 0.9
+        fileNameTemplate = ScreenshotFileNaming.defaultTemplate
+        fileNameCounter = 1
+        refreshFileNamePreview()
         historyRetentionLimit = 100
         editorFullScreen = true
         defaultConfig = .default
@@ -680,6 +890,8 @@ private struct DefaultConfigPreview: View {
 
 struct CaptureSettingsTab: View {
     @AppStorage("bs_selfTimerDelay") private var selfTimerRaw: Int = 0
+    @AppStorage("bs_overlayFollowsMouse") private var overlayFollowsMouse: Bool = true
+    @AppStorage("bs_overlayPinnedDisplayID") private var overlayPinnedDisplayIDRaw: Int = 0
     @AppStorage("bs_openEditorAfterCapture") private var openEditorAfterCapture = false
     @AppStorage("bs_keepInDeckUntilSaved") private var keepInDeckUntilSaved = false
     @AppStorage("bs_captureRegionOnRelease") private var captureRegionOnRelease = false
@@ -689,6 +901,22 @@ struct CaptureSettingsTab: View {
         Binding(
             get: { SelfTimerDelay(rawValue: selfTimerRaw) ?? .off },
             set: { selfTimerRaw = $0.rawValue }
+        )
+    }
+
+    private var connectedScreens: [(id: CGDirectDisplayID, screen: NSScreen)] {
+        NSScreen.screens.compactMap { screen in
+            guard let id = ActiveDisplayResolver.displayID(for: screen) else { return nil }
+            return (id, screen)
+        }
+    }
+
+    private var overlayPinnedDisplayID: Binding<CGDirectDisplayID?> {
+        Binding(
+            get: {
+                overlayPinnedDisplayIDRaw == 0 ? nil : CGDirectDisplayID(overlayPinnedDisplayIDRaw)
+            },
+            set: { overlayPinnedDisplayIDRaw = Int($0 ?? 0) }
         )
     }
 
@@ -712,6 +940,25 @@ struct CaptureSettingsTab: View {
                     Text("Capture as soon as I let go")
                     Text("Off, the rectangle stays up with handles so you can nudge it, and Return or a double-click takes the shot.")
                 }
+
+                Picker("Show it on", selection: $overlayFollowsMouse) {
+                    Text("Whatever screen my mouse is on").tag(true)
+                    Text("A specific screen").tag(false)
+                }
+                .onChange(of: overlayFollowsMouse) { _, followsMouse in
+                    guard !followsMouse, overlayPinnedDisplayIDRaw == 0,
+                          let mainScreen = NSScreen.main ?? NSScreen.screens.first,
+                          let mainID = ActiveDisplayResolver.displayID(for: mainScreen) else { return }
+                    overlayPinnedDisplayIDRaw = Int(mainID)
+                }
+
+                if !overlayFollowsMouse {
+                    Picker("Screen", selection: overlayPinnedDisplayID) {
+                        ForEach(connectedScreens, id: \.id) { entry in
+                            Text(entry.screen.localizedName).tag(Optional(entry.id))
+                        }
+                    }
+                }
             } header: {
                 Text("Region")
             } footer: {
@@ -721,7 +968,7 @@ struct CaptureSettingsTab: View {
             Section {
                 Toggle(isOn: $openEditorAfterCapture) {
                     Text("Open the editor straight away")
-                    Text("Off, show a preview card. Screenshots reach your save folder only when you choose Save or Export.")
+                    Text("Off, show a preview card. To save normal screenshots immediately, enable automatic saving in General.")
                 }
                 Toggle(isOn: $keepInDeckUntilSaved) {
                     Text("Keep screenshot previews open")
@@ -744,6 +991,8 @@ struct CaptureSettingsTab: View {
         .alert("Restore Capture settings to their defaults?", isPresented: $isConfirmingReset) {
             Button("Restore Defaults", role: .destructive) {
                 selfTimerRaw = 0
+                overlayFollowsMouse = true
+                overlayPinnedDisplayIDRaw = 0
                 openEditorAfterCapture = false
                 keepInDeckUntilSaved = false
                 captureRegionOnRelease = false
@@ -890,6 +1139,10 @@ struct RecordingSettingsTab: View {
 // MARK: - Shortcut Settings
 
 struct ShortcutSettingsTab: View {
+    @AppStorage(NotchVoiceCapture.actionKey) private var holdAction = "area"
+    @AppStorage(NotchVoiceCapture.holdKey) private var captureHoldKey = NotchCaptureHoldKey.control
+    @AppStorage(NotchVoiceCapture.controlKey) private var holdCaptureEnabled = true
+    @AppStorage(NotchVoiceCapture.gestureKey) private var holdOptionForVoice = false
     @State private var isConfirmingReset = false
     @State private var search = ""
     @State private var category: ShortcutService.Group?
@@ -901,6 +1154,38 @@ struct ShortcutSettingsTab: View {
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Hold a modifier and drag to capture", isOn: $holdCaptureEnabled)
+                    .onChange(of: holdCaptureEnabled) { NotchVoiceCapture.shared.refreshGesture() }
+                Picker("Capture modifier", selection: $captureHoldKey) {
+                    ForEach(NotchCaptureHoldKey.allCases) { key in
+                        Text("\(key.symbol) \(key.title)").tag(key)
+                    }
+                }
+                .disabled(!holdCaptureEnabled)
+                .onChange(of: captureHoldKey) { NotchVoiceCapture.shared.refreshGesture() }
+                Picker("Hold action", selection: $holdAction) {
+                    Text("Select an area").tag("area")
+                    Text("Draw on screen").tag("draw")
+                }
+                .disabled(!holdCaptureEnabled)
+                .onChange(of: holdAction) { NotchVoiceCapture.shared.refreshGesture() }
+                Text(holdAction == "area"
+                    ? "Hold \(captureHoldKey.title) and drag an area. Pressing the modifier alone does nothing; release it early or press Escape to cancel."
+                    : "Hold \(captureHoldKey.title) briefly to freeze the screen, draw, then release it to save.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Hold Option for voice annotation", isOn: $holdOptionForVoice)
+                    .disabled(holdCaptureEnabled && captureHoldKey == .option)
+                    .onChange(of: holdOptionForVoice) { NotchVoiceCapture.shared.refreshGesture() }
+                Text(holdCaptureEnabled && captureHoldKey == .option
+                    ? "Option is assigned to capture. Voice remains available in the quick editor."
+                    : "Off by default so Option remains available to apps such as Wispr Flow. Voice remains available in the quick editor.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } header: {
+                Text("Notch Capture Gesture")
+            } footer: {
+                Text("Available in Notch Mode with Accessibility access. This gesture is separate from the keyboard shortcuts below.")
+            }
             Section {
                 TextField("Search shortcuts", text: $search)
                     .textFieldStyle(.roundedBorder)
@@ -1159,6 +1444,8 @@ struct AboutTab: View {
 
                 section("Updates") {
                     updateContent
+                    Button("What’s New…") { ReleaseNotesWindowController.shared.show() }
+                    Button("Take the Tour…") { OnboardingWindowController.shared.show(replay: true) }
                 }
 
                 section("Project") {

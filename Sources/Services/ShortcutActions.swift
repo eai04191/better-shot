@@ -14,7 +14,7 @@ extension ShortcutService {
             if AppPreferences.lastRegionRect != nil {
                 await CaptureOrchestrator.shared.captureLastRegion(on: screen)
             } else {
-                ToastWindow.shared.show(title: "No previous region", message: "Choose a region in the capture bar first.", systemIcon: "rectangle.dashed", on: screen)
+                ToastWindow.shared.show(isError: true, title: "No previous region", message: "Choose a region in the capture bar first.", systemIcon: "rectangle.dashed", on: screen)
             }
         case .recording, .recordingOptions:
             RecordingBarPresenter.shared.showPicker(recordingOptions: action == .recordingOptions)
@@ -35,23 +35,41 @@ extension ShortcutService {
             MediaGalleryWindowController.shared.open(on: screen)
         case .openSettings:
             SettingsWindowController.shared.open(on: screen)
-        case .restoreLastCapture, .pinLastCapture:
+        case .restoreLastCapture, .pinLastCapture, .editClipboard:
+            if action == .editClipboard {
+                do {
+                    if let url = try ClipboardImage.fileURL() {
+                        PreviewPanelPresenter.shared.openEditor(for: url)
+                        return
+                    }
+                } catch {
+                    ToastWindow.shared.show(isError: true, title: "Couldn’t open clipboard image",
+                        message: "The image is still on the clipboard. Check disk space and try again.",
+                        systemIcon: "exclamationmark.triangle", on: screen)
+                    return
+                }
+            }
             let latest = CaptureOrchestrator.shared.lastCaptureURL
             let url = latest.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
                 ?? HistoryStore.shared.records.first.map { HistoryStore.shared.displayURLForRecord($0) }
             guard let url, FileManager.default.fileExists(atPath: url.path) else {
-                ToastWindow.shared.show(title: "No capture available", message: "Take a screenshot or open Media Gallery to find a saved capture.", systemIcon: "photo", on: screen)
+                let message = action == .editClipboard
+                    ? "Copy an image or take a screenshot first."
+                    : "Take a screenshot or open Media Gallery to find a saved capture."
+                ToastWindow.shared.show(isError: true, title: "No capture available", message: message, systemIcon: "photo", on: screen)
                 return
             }
             if action == .pinLastCapture {
                 let retainedURL = DeckStaging.retain(url)
                 guard !DeckStaging.isStaged(retainedURL) else {
-                    ToastWindow.shared.show(title: "Couldn’t prepare capture",
+                    ToastWindow.shared.show(isError: true, title: "Couldn’t prepare capture",
                         message: "The screenshot is still available. Check disk space and try again.",
                         systemIcon: "exclamationmark.triangle", on: screen)
                     return
                 }
                 PinnedScreenshotController.shared.pin(url: retainedURL, on: screen)
+            } else if action == .editClipboard {
+                PreviewPanelPresenter.shared.openEditor(for: url)
             } else {
                 PreviewOverlay.shared.show(url: url, on: screen, automaticallyDismiss: false)
             }
