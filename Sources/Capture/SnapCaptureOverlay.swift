@@ -349,12 +349,14 @@ final class SnapSelectionView: NSView {
         threshold = new
         AppPreferences.snapThreshold = new
         performSnap()
+        positionPanel()
         needsDisplay = true
     }
 
     private func updateExtend(_ new: Double) {
         extendPx = new
         AppPreferences.snapExtendPx = new
+        positionPanel()
         needsDisplay = true
     }
 
@@ -378,8 +380,9 @@ final class SnapSelectionView: NSView {
     }
 
     private func positionPanel() {
-        guard let host = panelHost, let snapped = snappedRectPx else { return }
-        let sel = pixelToView(snapped)
+        // Avoid the padded crop outline, which moves with threshold and margin changes.
+        guard let host = panelHost, let crop = finalCropRectPx() else { return }
+        let sel = pixelToView(crop)
         let size = host.frame.size
         let margin: CGFloat = 12
 

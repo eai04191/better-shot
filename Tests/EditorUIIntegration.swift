@@ -1564,10 +1564,19 @@ func checkSnapCapture() async throws {
                 modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
                 eventNumber: 3, clickCount: 1, pressure: 0)!)
             view.layoutSubtreeIfNeeded()
-            assertSnapPanelControlsFit(in: view)
+            assertSnapPanelLayout(in: view, avoiding: CGRect(x: 200, y: 200, width: 200, height: 100).insetBy(dx: -16, dy: -16))
             let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
             view.cacheDisplay(in: view.bounds, to: bitmap)
             try bitmap.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("selection.png"))
+            // Off keeps the rough drag rect, so the outline grows past the snapped content;
+            // the panel must follow it and the widest margin.
+            let drag = CGRect(x: 180, y: 180, width: 240, height: 140)
+            try changeSnapPanel(in: view, threshold: 0, wheelTicks: 12)
+            assertSnapPanelLayout(in: view, avoiding: drag.insetBy(dx: -64, dy: -64))
+            let switched = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+            view.cacheDisplay(in: view.bounds, to: switched)
+            try switched.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("selection-off.png"))
+            try changeSnapPanel(in: view, threshold: 2, wheelTicks: -12)
         }
         view.keyDown(with: NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
             timestamp: 0, windowNumber: window.windowNumber, context: nil,
@@ -1594,17 +1603,54 @@ func checkSnapCapture() async throws {
     print("PASS Snap Capture overlay drag, tight content crop, Retina margins, Return, Escape, PNG roundtrip and light/dark snapshots")
 }
 
-/// The panel's hosting view is sized to its fitting size, so a native control wider
-/// than its proposal draws outside the panel material instead of shrinking.
 @MainActor
-private func assertSnapPanelControlsFit(in overlay: NSView) {
+private func snapPanelHost(in overlay: NSView) -> NSView {
     guard let host = overlay.subviews.first(where: { $0 is NSHostingView<SnapControlPanel> }) else {
         preconditionFailure("Snap selection must show its parameter panel")
     }
-    func controls(in view: NSView) -> [NSControl] {
-        view.subviews.flatMap { ($0 as? NSControl).map { [$0] } ?? controls(in: $0) }
+    return host
+}
+
+@MainActor
+private func snapPanelControls(in view: NSView) -> [NSControl] {
+    view.subviews.flatMap { ($0 as? NSControl).map { [$0] } ?? snapPanelControls(in: $0) }
+}
+
+/// Drives the panel's native controls the way a click and a scroll-wheel tick would.
+@MainActor
+private func changeSnapPanel(in overlay: NSView, threshold segment: Int, wheelTicks: Int) throws {
+    let host = snapPanelHost(in: overlay)
+    guard let segmented = snapPanelControls(in: host).compactMap({ $0 as? NSSegmentedControl }).first else {
+        preconditionFailure("Snap panel must use the native segmented control")
     }
-    let found = controls(in: host)
+    segmented.selectedSegment = segment
+    precondition(segmented.sendAction(segmented.action, to: segmented.target), "Snap segment change must reach SwiftUI")
+    func wheelView(in view: NSView) -> _SnapScrollWheelNSView? {
+        (view as? _SnapScrollWheelNSView) ?? view.subviews.lazy.compactMap(wheelView).first
+    }
+    guard let wheel = wheelView(in: host) else { preconditionFailure("Snap margin must accept scroll-wheel steps") }
+    for _ in 0..<abs(wheelTicks) {
+        let cgEvent = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
+            wheel1: wheelTicks > 0 ? 1 : -1, wheel2: 0, wheel3: 0)!
+        wheel.scrollWheel(with: NSEvent(cgEvent: cgEvent)!)
+    }
+    // SwiftUI forwards @State changes to the overlay on its next update pass.
+    for _ in 0..<5 {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        host.layoutSubtreeIfNeeded()
+    }
+    overlay.layoutSubtreeIfNeeded()
+}
+
+/// The panel's hosting view is sized to its fitting size, so a native control wider
+/// than its proposal draws outside the panel material instead of shrinking. The panel
+/// must also stay clear of the padded crop outline after re-snapping or margin changes.
+@MainActor
+private func assertSnapPanelLayout(in overlay: NSView, avoiding outline: CGRect) {
+    let host = snapPanelHost(in: overlay)
+    precondition(!host.frame.intersects(outline),
+        "Snap panel \(host.frame) must not cover the crop outline \(outline)")
+    let found = snapPanelControls(in: host)
     precondition(found.contains { $0 is NSSegmentedControl }, "Snap panel must use the native segmented control")
     let content = host.bounds.insetBy(dx: 12, dy: 12)
     for control in found {

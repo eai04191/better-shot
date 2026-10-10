@@ -16,6 +16,7 @@ struct SnapControlPanel: View {
 
     static let extendRange: ClosedRange<Double> = 0...64
     static let extendStep: Double = 4
+    static let width: CGFloat = 324
 
     init(
         threshold: SnapThreshold,
@@ -45,9 +46,6 @@ struct SnapControlPanel: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                // Regular-size segments are wider than the 300 pt panel's remaining
-                // row width and AppKit draws them past the panel instead of shrinking.
-                .controlSize(.small)
                 .frame(maxWidth: .infinity)
             }
             .help("Snap strength — Large snaps to fainter edges, Small only to crisp ones")
@@ -75,7 +73,9 @@ struct SnapControlPanel: View {
             }
         }
         .padding(12)
-        .frame(width: 300)
+        // The native segmented control does not shrink below its intrinsic width;
+        // a narrower panel makes AppKit draw the segments past the panel edge.
+        .frame(width: Self.width)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
