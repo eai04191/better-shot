@@ -16,7 +16,7 @@ struct SnapControlPanel: View {
 
     static let extendRange: ClosedRange<Double> = 0...64
     static let extendStep: Double = 4
-    static let width: CGFloat = 324
+    static let minimumContentWidth: CGFloat = 276
 
     init(
         threshold: SnapThreshold,
@@ -48,6 +48,10 @@ struct SnapControlPanel: View {
                 .labelsHidden()
                 .frame(maxWidth: .infinity)
             }
+            // The native segmented control never shrinks below its intrinsic width,
+            // which varies with the control's live glass styling, so this row sets
+            // the panel width and the other rows stretch to it.
+            .frame(minWidth: Self.minimumContentWidth)
             .help("Snap strength — Large snaps to fainter edges, Small only to crisp ones")
 
             InspectorSlider("Margin", value: Binding(
@@ -72,10 +76,8 @@ struct SnapControlPanel: View {
                     .keyboardShortcut(.defaultAction)
             }
         }
+        .fixedSize(horizontal: true, vertical: false)
         .padding(12)
-        // The native segmented control does not shrink below its intrinsic width;
-        // a narrower panel makes AppKit draw the segments past the panel edge.
-        .frame(width: Self.width)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)

@@ -79,6 +79,19 @@ final class SnapCaptureOverlay {
 
 // MARK: - Window
 
+/// Sized manually inside the overlay, so it reports SwiftUI size changes (such as the
+/// segmented control restyling after a selection) instead of clipping or overflowing.
+final class SnapPanelHostingView: NSHostingView<SnapControlPanel> {
+    var onContentSizeChange: (() -> Void)?
+
+    override func invalidateIntrinsicContentSize() {
+        super.invalidateIntrinsicContentSize()
+        guard let onContentSizeChange else { return }
+        // Read the new fitting size after SwiftUI finishes the current update.
+        DispatchQueue.main.async(execute: onContentSizeChange)
+    }
+}
+
 private final class OverlaySnapWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
@@ -110,7 +123,7 @@ final class SnapSelectionView: NSView {
     private var threshold: SnapThreshold = AppPreferences.snapThreshold
     private var extendPx: Double = AppPreferences.snapExtendPx
 
-    private var panelHost: NSHostingView<SnapControlPanel>?
+    private var panelHost: SnapPanelHostingView?
     private let crosshair = NSCursor.crosshair
 
     init(
@@ -372,8 +385,13 @@ final class SnapSelectionView: NSView {
             onConfirm: { [weak self] in self?.confirm() },
             onCancel: { [weak self] in self?.onCancel() }
         )
-        let host = NSHostingView(rootView: panel)
+        let host = SnapPanelHostingView(rootView: panel)
         host.frame.size = host.fittingSize
+        host.onContentSizeChange = { [weak self, weak host] in
+            guard let self, let host, host === self.panelHost else { return }
+            host.frame.size = host.fittingSize
+            self.positionPanel()
+        }
         addSubview(host)
         panelHost = host
         positionPanel()

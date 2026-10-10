@@ -1538,8 +1538,16 @@ func checkSnapCapture() async throws {
     for scheme in [ColorScheme.light, .dark] {
         try snapshot(SnapControlPanel(threshold: .medium, extendPx: 16,
             onThresholdChange: { _ in }, onExtendChange: { _ in }, onConfirm: {}, onCancel: {}),
-            scheme: scheme, width: 324, to: output.appendingPathComponent("panel-\(scheme).png"), height: 164)
+            scheme: scheme, width: 400, to: output.appendingPathComponent("panel-\(scheme).png"), height: 164)
     }
+    // The live glass segmented control is wider than its offscreen rendering; a larger
+    // control stands in for that so the panel must grow instead of overflowing.
+    let large = NSHostingView(rootView: SnapControlPanel(threshold: .medium, extendPx: 16,
+        onThresholdChange: { _ in }, onExtendChange: { _ in }, onConfirm: {}, onCancel: {})
+        .environment(\.controlSize, .large))
+    large.frame.size = large.fittingSize
+    large.layoutSubtreeIfNeeded()
+    assertSnapPanelControlsFit(in: large)
     for cancel in [false, true] {
         var captured: CGImage?
         var didCancel = false
@@ -1648,8 +1656,15 @@ private func changeSnapPanel(in overlay: NSView, threshold segment: Int, wheelTi
 @MainActor
 private func assertSnapPanelLayout(in overlay: NSView, avoiding outline: CGRect) {
     let host = snapPanelHost(in: overlay)
+    precondition(host.frame.size == host.fittingSize,
+        "Snap panel host \(host.frame.size) must follow its content \(host.fittingSize)")
     precondition(!host.frame.intersects(outline),
         "Snap panel \(host.frame) must not cover the crop outline \(outline)")
+    assertSnapPanelControlsFit(in: host)
+}
+
+@MainActor
+private func assertSnapPanelControlsFit(in host: NSView) {
     let found = snapPanelControls(in: host)
     precondition(found.contains { $0 is NSSegmentedControl }, "Snap panel must use the native segmented control")
     let content = host.bounds.insetBy(dx: 12, dy: 12)
