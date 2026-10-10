@@ -103,27 +103,34 @@ struct MenuBarContentView: View {
     ]
 
     private var captureGrid: some View {
-        LazyVGrid(columns: Self.columns, spacing: 6) {
-            TrayGridButton(title: "Region", icon: "rectangle.dashed", action: .region) {
-                dismissAndRun(.region)
-            }
+        VStack(spacing: 6) {
+            LazyVGrid(columns: Self.columns, spacing: 6) {
+                TrayGridButton(title: "Region", icon: "rectangle.dashed", action: .region) {
+                    dismissAndRun(.region)
+                }
 
-            TrayGridButton(title: "Screen", icon: "desktopcomputer", action: .fullscreen) {
-                dismissAndRun(.fullscreen)
-            }
+                TrayGridButton(title: "Screen", icon: "desktopcomputer", action: .fullscreen) {
+                    dismissAndRun(.fullscreen)
+                }
 
-            TrayGridButton(title: "Window", icon: "macwindow", action: .window) {
-                dismissAndRun(.window)
+                TrayGridButton(title: "Window", icon: "macwindow", action: .window) {
+                    dismissAndRun(.window)
+                }
+
+                TrayGridButton(title: "Record", icon: "record.circle", action: .recordingOptions) {
+                    dismissPopover()
+                    RecordingBarPresenter.shared.showPicker(recordingOptions: true)
+                }
             }
 
             TrayGridButton(title: "Snap", icon: "viewfinder.rectangular", action: .snapCapture) {
                 dismissAndRun(.snapCapture)
             }
 
-            TrayGridButton(title: "Record", icon: "record.circle", action: .recordingOptions) {
-                dismissPopover()
-                RecordingBarPresenter.shared.showPicker(recordingOptions: true)
+            TrayGridButton(title: "Scrolling Capture", icon: "rectangle.expand.vertical", action: .scrollCapture) {
+                dismissAndRun(.scrollCapture)
             }
+            .accessibilityIdentifier("scrollCaptureStart")
         }
     }
 
@@ -220,7 +227,7 @@ struct MenuBarContentView: View {
             screenshotItems.append(TrayMenuItem(title: "No screenshots yet", icon: "photo", action: {}, isDisabled: true))
         } else {
             for record in recentScreenshots.prefix(8) {
-                screenshotItems.append(TrayMenuItem(title: record.filename, icon: "photo") { [record] in
+                screenshotItems.append(TrayMenuItem(title: record.displayName, icon: "photo") { [record] in
                     openRecentCapture(record)
                 })
             }
@@ -232,7 +239,7 @@ struct MenuBarContentView: View {
             recordingItems.append(TrayMenuItem(title: "No recordings yet", icon: "video", action: {}, isDisabled: true))
         } else {
             for record in recentRecordings.prefix(8) {
-                recordingItems.append(TrayMenuItem(title: record.filename, icon: "video") { [record] in
+                recordingItems.append(TrayMenuItem(title: record.displayName, icon: "video") { [record] in
                     openRecentCapture(record)
                 })
             }

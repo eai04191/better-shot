@@ -32,7 +32,7 @@ A useful bug report includes:
 
 ### Requirements
 
-- macOS 26 or later.
+- macOS 14 or later to run BetterShot. Development uses Xcode 26, below.
 - Xcode 26 or later, including its command-line tools. Open Xcode once to finish
   setup and select it under **Xcode > Settings > Locations > Command Line Tools**.
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen), available through Homebrew.
@@ -160,51 +160,92 @@ all affected callers meet. Keep unrelated cleanup out of the diff.
 
 The screenshot path runs through `ShortcutService`, `CaptureOrchestrator`,
 `ScreenCapture`, private staging/history, and the preview or image editor.
-Region screenshots use macOS's native `/usr/sbin/screencapture -i` selector.
-Window screenshots use `SCContentSharingPicker` and `SCScreenshotManager.captureImage`
-in the app process; preserve picker cancellation, native pixel dimensions, and private PNG staging.
-OCR and color results share `CaptureOrchestrator.completeTextCapture`: copy the exact
-value and persist typed text/color results only when Notch Mode is active. Empty OCR must not erase the clipboard.
-Notch Mode must not show toasts. Mark `ToastWindow.show` failures with `isError: true`
-so recovery instructions appear inline; successes stay quiet or update their action
-button. Export/share progress continues through the embedded `TransferStatusCard`.
+Scrolling Capture is the `.scrollCapture` action: the menu bar, capture bar,
+shortcut, and `bettershot://capture/scroll` all reach it through
+`CaptureOrchestrator.performCapture`. It selects an area with
+`RegionSelectionOverlay` and uses `ScrollCaptureSessionPresenter` to Stop into
+that same private preview flow or Cancel/Escape without staging a file.
+`ScrollCaptureController` ports MacShot's engine: frames come from
+`CGWindowListCreateImage` (loaded at runtime) for windows below the selection
+outline, so BetterShot's panels never appear in them. Vision registration and
+merging run off the main actor, and manual, automatic, and final captures are
+serialized. The reference frame only advances when a strip is appended or the
+page is unchanged, so scrolling back after a missed join recovers.
+Every join redraws the overlap below the pinned header from the newer frame, and
+Stop's final frame refreshes the page end even without further scrolling, so
+content that fades in on scroll is captured settled. The live preview is
+downscaled off the main actor.
+`ScrollFrameAnalyzer` compares native pixel strides and channel layouts; never
+assume captured rows are packed. Auto Scroll posts continuous pixel-unit scroll
+events sized to the area, which mouse utilities such as Mac Mouse Fix pass
+through unchanged; line events get reversed or smoothed. It pauses on app
+changes and stops at page end, after repeated misses, or at the size limit. Run
+`BETTERSHOT_CHECK_CAPTURE_UI=1 bash Tests/run-exports.sh` after a test build to
+check stitching and the compact capture controls in both appearances.
+Region screenshots use `RegionSelectionOverlay` with the previous area
+(`AppPreferences.lastRegionRect`) preselected, so Return captures it again, then
+reactivate the previously frontmost app before `screencapture -R` takes the shot.
+OCR keeps macOS's native `/usr/sbin/screencapture -i` selector.
+Region screenshots always use BetterShot’s selector.
+`AppPreferences.captureRegionOnRelease`, exposed as Capture as soon as I let go
+in Settings > Capture > Region, chooses immediate capture on release or adjustment
+before confirmation. Both paths preserve the remembered rectangle.
+`AppPreferences.freezeScreenDuringRegionCapture`, exposed as Freeze the screen
+while selecting, snapshots every display with `FrozenScreenCapture` before the
+selector appears. `RegionSelectionOverlay` shows each frame behind its selection
+view, and `FrozenScreenFrame` crops the confirmed area from that frame at native
+pixel size; never take a second shot after confirmation. It defaults off and
+applies only to region screenshots: the countdown runs first, and window, OCR,
+previous-region, scrolling, and recording captures stay live.
+`Tests/FrozenScreenFrameCheck.swift` covers crop origins, scales, and PNG pixels.
+Window screenshots use `/usr/sbin/screencapture -i -w`, retaining cancellation,
+shadow options, native pixel dimensions, and private PNG staging.
+OCR and color results copy through `CaptureOrchestrator.completeTextCapture`;
+empty OCR must not erase the clipboard.
 Recording areas use BetterShot's adjustable AppKit selector.
-`RecordingPickerControls` owns the compact `RecordingOptionsView`. Keep the 0.5.4 Display/Window/Area and Camera/Mic/Audio/Script strip in the floating bar in both capture modes; do not embed it in the notch.
+`RecordingPickerControls` owns the compact `RecordingOptionsView`. Keep the 0.5.4 Display/Window/Area and Camera/Mic/Audio/Script strip in the floating bar.
+Discard and Start Over, including their shortcuts, use
+`RecordingBarPresenter.confirmRecordingAction` and a standalone `NSAlert.runModal()`.
+Do not attach SwiftUI alerts or sheets to the transparent recording panel: its
+oversized hosting area becomes an opaque backdrop. Cancel preserves the recording.
 Run `BETTERSHOT_CHECK_CAPTURE_UI=1 bash Tests/run-exports.sh` after building for
 focused light/dark capture layout checks without generating a video fixture.
-The notch shelf uses `NotchRecentCaptures.shelfItems` to merge pending media and
-saved media/text/colors by recency without duplicates. Reuse `PreviewCardView` and `PreviewOverlay.perform` for
-card rendering/actions; notch sizing must not change the normal overlay. Notch media cards reveal the standard actions on hover or keyboard focus, with drag recognition confined to the preview.
-`NotchQuickEditor` reuses `AnnotationCanvas`, `AnnotationRenderer`, and editable
-history sidecars. Done saves privately; it must not update an exported file.
-`NotchVoiceCapture` handles the configurable hold key through the existing `ShortcutService` event tap. Select an area is the default through `RegionSelectionOverlay` and `captureLastRegion`; pressing the modifier alone must not open the notch, and unset or unknown hold actions must never start drawing. Draw on screen is opt-in: snapshot the display, open the production canvas full-screen with a red freehand tool, and route held strokes through its model. Buffer mouse events during capture preparation; finish on modifier release after the final mouse-up. Drawing alone must not request microphone access. Escape preserves the editor's discard confirmation. Keyboard chords cancel arming. The folder menu dispatches OCR/color through `CaptureOrchestrator`, with shortcut labels from `ShortcutService`.
-Option voice capture is opt-in, observes modifier state only when enabled and when Option is not the capture hold key, and never retains plain keystrokes. Releasing Option during microphone startup must still finish the capture. Keep the annotated image and transcript in one shelf item. Microphone capture ends before on-device transcription, with temporary
-audio retained only for retry until completion/discard. Reuse
-`RecordingTranscriptionService.transcribeAudio` rather than adding a cloud service.
-`NotchShelfStore` keeps bounded OCR/color history only in Notch Mode, plus opt-in clipboard text and separately configurable standalone hex-color collection (on by default), and checks private pasteboard
-markers before reading text. Test with isolated pasteboards and storage only.
-After building, `BETTERSHOT_CHECK_LOCAL_SHELF=1 bash Tests/run-exports.sh` checks
-persistence, copying and quick-edit rendering without live capture. An optional
-`BETTERSHOT_SPEECH_FIXTURE` path can supply synthesized speech saying “button” and
-“smaller” to validate the actual on-device transcription engine.
 Keep source selection separate from starting a recording, preserve permission checks
 for camera/microphone, and keep screenshot and recording delays distinct.
 
 Every screenshot starts in `DeckStaging`. Copy only updates the clipboard and
 retains a private file for file-based paste targets. Edit, Pin, Share, and drag-out
 retain working files internally. Only explicit Save/Export, capture-and-save,
-or opt-in automatic saving writes a deliverable to the configured folder.
-Automatic saving defaults off, bypasses explicit Copy/Edit/Pin actions, and
-retains failed captures for retry. Preserve this distinction across all callers.
+or enabled automatic saving writes a deliverable to the configured folder.
+Automatic screenshot saving defaults on for new installs. At launch, use
+`OnboardingState.prepareForLaunch` before other preference migrations to identify
+a new install, then `AfterCaptureActions.prepareForLaunch` to preserve upgrades'
+explicit choices and previous unset/off behavior. Unfinished onboarding is not a
+new install. Restore General defaults uses the new-install saving default.
+Explicit Copy/Edit/Pin actions bypass automatic saving, and failed saves keep
+the capture for retry. Keeping screenshot previews open protects only private staged files. Saved and
+retained previews follow Hide After. The timer checks the live pointer and tool
+focus while the panel is key; hover/focus callbacks must not cancel its task.
 
 Image-editor Save commits to history and creates or atomically replaces the
 associated export, even for an untouched image. Copy and Share do not update
 that export. Export opens a save panel for a new destination.
 
+A recording package's `exportPath` metadata names its save-folder file.
+`RecordingDeliverable.save` replaces that file in its own format while it exists,
+and otherwise writes a new file and records it. Video-editor Save re-renders it;
+video-editor Export always writes a new file. `checkStudioSaveUpdatesSavedVideo`
+in `Tests/ExportIntegration.swift` covers this against the production editor.
+
 [ScreenshotFileNaming](Sources/BetterShot/ScreenshotFileNaming.swift) is the shared,
 Foundation-only deliverable name renderer. Preserve sanitization and keep
 previews from advancing counters. Recording package directory names identify
 projects and must not change with the deliverable template.
+`captureName` already removes the format extension; append the requested
+extension without stripping another dotted suffix. Video saves stage the complete
+copy/remux before replacing an export, and choose collision-free default names
+after asynchronous conversion. Keep the naming and failed-save regressions in
+`Tests/ExportIntegration.swift` against these production paths.
 
 ### Editing, rendering, and persistence
 
@@ -225,6 +266,14 @@ cache invalidation must agree on camera layouts, crop, masks, cursor styling,
 and effects. Camera frame ratio is independent of canvas ratio. Older projects
 must retain compatible defaults and saved artwork, including legacy Hand cursors
 and the `macOS` storage key for Arrow.
+
+`ViewportTimeline.build` adapts Cap's `zoom_spring.rs`: magnification and a
+travel-space center (0 is flush left/top, 1 flush right/bottom) use separate
+springs, so every frame stays inside the source. The center pre-aims while
+unzoomed, holds its last framing while zooming out, and Auto cues follow
+fixed pointer regions (50% by 70% of the zoomed view) instead of raw samples.
+Instant cues snap within 0.1 seconds of their boundaries. `checkZoomCamera`
+in the export integration run covers these rules against production code.
 
 `GradientPreset.presets` in [BackgroundStyle.swift](Sources/Models/BackgroundStyle.swift)
 is the palette source. General > Default Look initializes new media; editing a
@@ -249,6 +298,10 @@ groups, scopes, and defaults. Do not renumber persisted IDs. New actions start
 unassigned; customized and disabled bindings must survive migration. Active
 editor bindings take priority over matching global bindings without intercepting
 normal text-field behavior.
+`KeyLabel` owns layout-aware shortcut labels, special-key glyphs, VoiceOver names,
+and the recording overlay's existing special-key style. Input-source changes
+refresh labels without changing stored key codes. Number-row labels stay digits,
+and printable keypad keys still pass through the recording modifier guard.
 
 [CaptureURLAction.swift](Sources/App/CaptureURLAction.swift) parses the supported
 `bettershot://` routes. The app delegate dispatches them. Preserve malformed-URL
@@ -330,8 +383,8 @@ transparent padding, shadow suppression, and whole-card zoom.
 
 Adapted rendering code carries Cap's AGPLv3 attribution and license in
 `Resources/Licenses/`, bundled with the application. Keep those notices and the
-corresponding-source/build instructions with distributions; see that folder's
-`NOTICE.md` and the repository `LICENSE`.
+corresponding-source/build instructions with distributions; see the repository
+`LICENSE`.
 
 `make test` includes projection/normalization checks, model persistence/undo,
 compact light/dark snapshots, production compositor checks, and encoded 30/60 fps
@@ -370,7 +423,9 @@ For a logic regression, add a small check against production code. Standalone
 checks are `Tests/*Check.swift`; an optional matching `.sources` file lists the
 production files to compile. For example, [FileNamingCheck.sources](Tests/FileNamingCheck.sources)
 points directly to the production filename renderer. Run the standalone suite
-with `bash scripts/run-checks.sh`.
+with `bash scripts/run-checks.sh`. It compiles each check for the `minimumOS` in
+`version.json` and runs `scripts/check-sf-symbols.py`, which fails on any SF
+Symbol name that is missing or newer than that minimum.
 
 ### Focused integration checks
 
@@ -379,8 +434,8 @@ with `make test` when production code changes.
 
 | Area | Command |
 | --- | --- |
-| Notch hover, preview actions, and compact/expanded snapshots | `BETTERSHOT_CHECK_NOTCH=1 bash Tests/run-exports.sh` |
-| ScreenCaptureKit window pixels, native resolution, staging, and preview in both modes (requires existing Screen Recording permission) | `BETTERSHOT_CHECK_WINDOW_CAPTURE=1 bash Tests/run-exports.sh` |
+| Live scroll capture, automatic page-end detection, and ordered pixels (requires existing Screen Recording and Accessibility permissions) | `BETTERSHOT_CHECK_SCROLL_CAPTURE=1 bash Tests/run-exports.sh` |
+| Interactive native window selection, pixels, staging, preview, and Escape (requires existing Screen Recording permission) | `BETTERSHOT_CHECK_WINDOW_CAPTURE=1 bash Tests/run-exports.sh` |
 | Screenshot Copy/Save and private storage | `BETTERSHOT_CHECK_SCREENSHOT_SAVING=1 bash Tests/run-exports.sh` |
 | Video compositing and encoded exports | `BETTERSHOT_CHECK_VIDEO_EXPORTS=1 bash Tests/run-exports.sh` |
 | Displayed Gallery and Settings windows | `BETTERSHOT_CHECK_LIBRARY_WINDOWS=1 bash Tests/run-exports.sh` |
@@ -473,14 +528,22 @@ explicit maintainer request.
 
 Contributions are licensed under the project's [BSD 3-Clause License](LICENSE).
 
-### Tour and release notes
+### Onboarding and release notes
 
-TourKit is a local Swift package in `Vendor/TourKit`, pinned to the upstream
-revision and MIT license listed in `BETTERSHOT.md`. Its slideshow is hosted in the
-existing native onboarding window; keep local appearance/accessibility patches
-when updating it. The permission/restart flow and optional video demos remain
-owned by BetterShot. Run `BETTERSHOT_TESTING=1 swift test --package-path Vendor/TourKit`
-for the upstream package checks, and `make test` for app integration.
+`OnboardingView` is a four-step native flow: Welcome, Permissions, Saving, and
+Practice. Each `OnboardingStep` page has a hero, a large title, and its content above
+one bottom bar with Skip or Back, progress dots, and Continue or Done. Permissions
+asks only for screen capture and Accessibility through `OnboardingPermissionRow`
+and `OnboardingPermissions`, the model behind Settings' `SettingsPermissionRow`;
+recordings request the microphone and camera when they need them. Saving edits the
+same folder and automatic-saving preferences as Settings › General. Practice watches
+`CaptureOrchestrator.lastCaptureURL` and shows the first capture taken after it
+appears. Every step change is saved through `OnboardingState.save(step:)`, so a
+permission restart reopens setup on that step. Skip and Done finish through
+`OnboardingWindowController.finish`, and closing the window also marks onboarding
+seen. Pages change with a 0.2-second ease-out move, or a fade with Reduce Motion.
+Settings › About › Take the Tour reopens the same flow. Run `make test` for the
+onboarding checks.
 
 `CHANGELOG.md` is bundled directly. Every `version.json` version must have a
 `## [x.y.z]` entry. `ReleaseNotes` parses these entries and tracks dismissed versions
@@ -492,40 +555,7 @@ versions; Settings → About can reopen the notes or tour.
 3D insertion hover and click share `Recording3DTimeline.insertionRange`. Keep the
 ghost non-interactive and avoid project mutations/render-cache invalidation while
 skimming. Tests cover placement boundaries, undo/persistence, and compact light/dark
-snapshots of the ghost, tour pages, and release notes.
-
-### Notch presentation
-
-Cancel pending hover dismissal during capture/mode changes and keep menus and
-popovers open while in use.
-Recent Captures reuses `MediaGalleryItem` resolution and `MediaGalleryCard` actions
-and thumbnail decoding; do not add a second media store.
-
-Settings > General > Capture Mode selects Normal Mode or Notch Mode and applies
-immediately. Overlay settings customize normal mode’s floating preview cards.
-
-`NotchPresenter` hosts preview cards, saved shelf items, quick-edit entry points, and
-related transfer cards. Keep capture/session controls in `RecordingBarPresenter` and preview actions in `PreviewOverlay`; do not
-add a second saving, copying, upload, or recording implementation. Normal mode is
-the fallback for missing or unknown `bs_presentationMode` values. Mode changes
-must preserve pending media, transfers, and active recording state. An idle notch
-opens when selected so its empty preview state is visible; afterward, clearing the final active item returns it to the compact resting state.
-The floating recording bar keeps the same lifecycle in both capture modes and must
-never be reparented into the notch.
-
-Preserve capture exclusion before presentation, immediate capture/mode dismissal,
-transparent margin hit testing, display selection, and accessibility. Expanded and
-compact surfaces stay opaque black with native dark-appearance controls. Short
-interruptible transitions respect Reduce Motion. Shelf filters reuse the existing
-media resolver; compact logo/status never shows a thumbnail
-or capture count. `make test` exercises mode switching, hover cancellation,
-menu/sheet protection, capture suspension, preview actions, transfer cleanup, and
-both appearances. The opt-in window-capture check drives selection and Escape;
-live recording and multi-display hardware still need manual checks.
-
-Boring Notch's copied shape and adapted hover button/interaction code retain their
-source credits and GPLv3 notices. See `Resources/Licenses/NOTICE.md` for the pinned
-revision and exact file mapping; bundle `BoringNotch.txt` with distributions.
+snapshots of the ghost, onboarding steps, and release notes.
 
 For window screenshot changes, also select a window and cancel with Escape in the
 signed dev app. Standalone test executables use their terminal’s capture identity

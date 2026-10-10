@@ -15,12 +15,14 @@ final class CaptureOrchestrator {
     private init() {}
 
     func performCapture(_ action: ShortcutService.Action, on screen: NSScreen? = nil) async {
-        guard !NotchVoiceCapture.shared.isPreparing, !NotchQuickEditor.shared.listening else { return }
+        if action == .scrollCapture, ScrollCaptureSessionPresenter.shared.isActive {
+            ScrollCaptureSessionPresenter.shared.stop()
+            return
+        }
         if captureInProgress {
             pendingCaptures.append((action, screen))
             return
         }
-        NotchPresenter.shared.suspendForCapture()
         captureInProgress = true
         captureScreen = screen
         await executeCapture(action)
@@ -35,17 +37,54 @@ final class CaptureOrchestrator {
         }
         captureScreen = nil
         captureInProgress = false
-        NotchPresenter.shared.resumeAfterCapture()
     }
 
     func captureLastRegion(on screen: NSScreen? = nil) async {
         guard !captureInProgress, AppPreferences.lastRegionRect != nil else { return }
-        NotchPresenter.shared.suspendForCapture()
         captureInProgress = true
         captureScreen = screen
         await RecordingBarPresenter.shared.hidePickerForCapture()
         await captureAndProcess { try await ScreenCapture.shared.captureLastRegion() }
         await finishCaptures()
+    }
+
+    private func performScrollCapture() async {
+        let outcome = await RegionSelectionOverlay().selectRegion(allowsWindowSelection: false)
+        guard case .region(let selection) = outcome,
+              let selectedScreen = ActiveDisplayResolver.screen(for: selection.displayID) else { return }
+        captureScreen = selectedScreen
+        let rect = RegionGeometry.pointsRect(global: selection.pointsRect,
+            primaryHeight: CGDisplayBounds(CGMainDisplayID()).height)
+        switch await ScrollCaptureSessionPresenter.shared.capture(rect: rect, on: selectedScreen) {
+        case .completed(let image):
+            do {
+                let url = try await Self.writeScrollImage(image)
+                ScreenCapture.shared.playShutterSound()
+                await processCapturedImage(url, action: .scrollCapture)
+            } catch {
+                ToastWindow.shared.show(isError: true, title: "Couldn’t finish scrolling capture",
+                    message: "The image could not be prepared. Select the area and try again. \(error.localizedDescription)",
+                    systemIcon: "exclamationmark.triangle", duration: 10, on: selectedScreen)
+            }
+        case .failed:
+            ToastWindow.shared.show(isError: true, title: "Couldn’t capture scrolling area",
+                message: "Check Screen & System Audio Recording permission, then select the area and try again.",
+                systemIcon: "exclamationmark.triangle", duration: 10, on: selectedScreen)
+        case .cancelled:
+            break
+        }
+    }
+
+    private nonisolated static func writeScrollImage(_ image: CGImage) async throws -> URL {
+        try await Task.detached(priority: .userInitiated) {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("bettershot_scroll_\(UUID().uuidString).png")
+            guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            try data.write(to: url, options: .atomic)
+            return url
+        }.value
     }
 
     private func executeCapture(_ action: ShortcutService.Action) async {
@@ -63,6 +102,8 @@ final class CaptureOrchestrator {
             await captureAndProcess(action: action) { try await ScreenCapture.shared.captureFullscreen(on: captureScreen) }
         case .window:
             await captureAndProcess(action: action) { try await ScreenCapture.shared.captureWindow() }
+        case .scrollCapture:
+            await performScrollCapture()
         case .ocr, .ocrSingleLine:
             await performOCR(singleLine: action == .ocrSingleLine)
         case .colorPicker:
@@ -120,8 +161,19 @@ final class CaptureOrchestrator {
     }
 
     private func performOCR(singleLine: Bool = false) async {
+        var progress: Task<Void, Never>?
+        defer { progress?.cancel() }
         do {
-            guard let text = try await ScreenCapture.shared.captureAndOCR() else { return }
+            let text = try await ScreenCapture.shared.captureAndOCR {
+                progress = Task {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    guard !Task.isCancelled else { return }
+                    ToastWindow.shared.show(title: "Recognizing text…", message: "This can take a moment.",
+                        systemIcon: "doc.text.viewfinder", duration: 120, on: captureScreen)
+                }
+            }
+            progress?.cancel()
+            guard let text else { return }
             completeTextCapture(text, action: singleLine ? .ocrSingleLine : .ocr)
         } catch {
             ToastWindow.shared.show(isError: true, title: "Couldn’t recognize text", message: error.localizedDescription,
@@ -129,7 +181,7 @@ final class CaptureOrchestrator {
         }
     }
 
-    /// Keep the exact clipboard value available for copying again from the notch.
+    /// Copy recognized text or a picked color without changing an empty clipboard result.
     func completeTextCapture(_ text: String, action: ShortcutService.Action, pasteboard: NSPasteboard = .general) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             ToastWindow.shared.show(isError: true, title: "No text found", message: "Try selecting a clearer text area.",
@@ -138,17 +190,8 @@ final class CaptureOrchestrator {
         }
         let value = action == .ocrSingleLine ? text.split(whereSeparator: \.isNewline).joined(separator: " ") : text
         let isColor = action == .colorPicker
-        let notch = NotchPresenter.shared
-        notch.captureIssue = nil
-        if AppPreferences.presentationMode == .notch {
-            if isColor { notch.colorHex = value } else { notch.ocrText = value }
-            NotchShelfStore.shared.add(text: value, isColor: isColor)
-        }
         let copied = Self.copyText(value, to: pasteboard)
         ScreenCapture.shared.playShutterSound()
-        if AppPreferences.presentationMode == .notch {
-            notch.show(on: captureScreen)
-        }
         ToastWindow.shared.show(isError: !copied, title: copied ? "Copied" : "Couldn’t copy",
             message: copied ? (isColor ? "\(value) copied to clipboard" : "Text copied to clipboard") : "Try Copy again.",
             systemIcon: isColor ? "eyedropper" : "doc.text.viewfinder", on: captureScreen)
@@ -160,13 +203,13 @@ final class CaptureOrchestrator {
         return pasteboard.setString(text, forType: .string)
     }
 
-    /// Every screenshot starts privately; normal captures can opt into automatic saving.
+    /// Every screenshot starts privately; normal captures follow the automatic saving setting.
     func processCapturedImage(_ url: URL, action: ShortcutService.Action = .region) async {
-        let stagedURL = await stageCapture(url)
+        let (stagedURL, thumbnail) = await stageCapture(url)
         var displayURL = AppPreferences.keepInDeckUntilSaved ? stagedURL : DeckStaging.retain(stagedURL)
         if displayURL != stagedURL { DeckStaging.discard(stagedURL) }
         let allowsAutomaticSave: Bool = switch action {
-        case .region, .fullscreen, .window, .previousRegion, .timedRegion: true
+        case .region, .fullscreen, .window, .previousRegion, .timedRegion, .scrollCapture: true
         default: false
         }
         var saveFailed = false
@@ -192,7 +235,7 @@ final class CaptureOrchestrator {
             }
         }
 
-        PreviewOverlay.shared.show(url: displayURL, on: captureScreen)
+        PreviewOverlay.shared.show(url: displayURL, on: captureScreen, thumbnail: thumbnail)
         if saveFailed {
             PreviewOverlay.shared.showSaveFailure(for: displayURL)
             return
@@ -209,36 +252,67 @@ final class CaptureOrchestrator {
         }
     }
 
-    private func stageCapture(_ url: URL) async -> URL {
+    private func stageCapture(_ url: URL) async -> (URL, NSImage?) {
         let config = AppPreferences.defaultBeautifierConfig
-        let stagedURL = await Task.detached { () -> URL? in
-            guard (try? DeckStaging.prepareDirectory()) != nil,
-                  let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+        let thumbnailEdge = OverlayCardSize.large.thumbnailSize.width * 2
+        // The capture is named once, here. Its raw source, library copy, and
+        // every later Copy or Save keep this name.
+        let fileName = ScreenshotFileNaming.currentFileName(extension: AppPreferences.exportFormat.fileExtension)
+        let staging = await Task.detached { () -> (URL, CGImage)? in
+            guard let folder = try? DeckStaging.makeCaptureDirectory() else { return nil }
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
                   let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil),
-                  let rendered = BeautifierRenderer.render(image: cgImage, config: config) else { return nil }
-            return Self.saveImage(rendered, in: DeckStaging.directory.path)
+                  let rendered = BeautifierRenderer.render(image: cgImage, config: config),
+                  let staged = Self.saveImage(rendered, named: fileName, in: folder.path) else {
+                try? FileManager.default.removeItem(at: folder)
+                return nil
+            }
+            let scale = min(1, thumbnailEdge / CGFloat(max(rendered.width, rendered.height)))
+            let colorSpace = rendered.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+            let thumbnail = (try? AnnotationScenePreviewRenderer.downscaled(rendered, scale: scale, colorSpace: colorSpace)) ?? rendered
+            return (staged, thumbnail)
         }.value
 
-        guard let stagedURL else {
+        guard let (stagedURL, thumbnail) = staging else {
             ToastWindow.shared.show(isError: true, title: "Couldn’t prepare capture",
                 message: "The original screenshot is still available in the preview.",
                 systemIcon: "exclamationmark.triangle", on: captureScreen)
-            return url
+            return (Self.unstagedCapture(url, named: fileName), nil)
         }
         do {
             try FileManager.default.moveItem(at: url, to: DeckStaging.rawURL(for: stagedURL))
-            return stagedURL
+            return (stagedURL, NSImage(cgImage: thumbnail, size: .zero))
         } catch {
-            try? FileManager.default.removeItem(at: stagedURL)
+            DeckStaging.discard(stagedURL)
+            return (Self.unstagedCapture(url, named: fileName), nil)
+        }
+    }
+
+    /// When staging fails the original is shown as-is; it still carries the
+    /// capture's name, in a private folder of its own.
+    private static func unstagedCapture(_ url: URL, named fileName: String) -> URL {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BetterShot-Unstaged", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let named = folder.appendingPathComponent(
+            ScreenshotFileNaming.fileName(of: URL(fileURLWithPath: fileName), extension: url.pathExtension))
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try FileManager.default.moveItem(at: url, to: named)
+            return named
+        } catch {
             return url
         }
     }
 
-    nonisolated static func saveImage(_ cgImage: CGImage, in dir: String) -> URL? {
+    /// Writes `cgImage` as `fileName` (numbered if taken) in `dir`. Captures
+    /// taken in the same second render the same name, so the hidden staging
+    /// file is unique per call and the final rename retries on a taken name.
+    nonisolated static func saveImage(_ cgImage: CGImage, named fileName: String, in dir: String) -> URL? {
         let format = AppPreferences.exportFormat
         let directory = URL(fileURLWithPath: dir, isDirectory: true)
-        let url = directory.appendingPathComponent("bettershot_\(UUID().uuidString).\(format.fileExtension)")
-        let stagingURL = directory.appendingPathComponent(".\(url.lastPathComponent)")
+        let fileName = ScreenshotFileNaming.fileName(of: URL(fileURLWithPath: fileName), extension: format.fileExtension)
+        let stagingURL = directory.appendingPathComponent(".\(UUID().uuidString).\(format.fileExtension)")
         defer { try? FileManager.default.removeItem(at: stagingURL) }
 
         guard let destination = CGImageDestinationCreateWithURL(
@@ -255,13 +329,15 @@ final class CaptureOrchestrator {
         CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
 
         guard CGImageDestinationFinalize(destination) else { return nil }
-        do {
-            // Rename only a complete image; moveItem refuses to overwrite an existing file.
-            try FileManager.default.moveItem(at: stagingURL, to: url)
-            return url
-        } catch {
-            return nil
+        // Rename only a complete image. `RENAME_EXCL` fails atomically when the
+        // name exists (moveItem checks, then overwrites), so a name taken since
+        // `uniqueURL` looked is retried with the next number.
+        for _ in 0..<100 {
+            let url = ScreenshotFileNaming.uniqueURL(for: fileName, in: directory, separator: "-")
+            if renamex_np(stagingURL.path, url.path, UInt32(RENAME_EXCL)) == 0 { return url }
+            guard errno == EEXIST else { return nil }
         }
+        return nil
     }
 
     /// Legacy home of duplicated raw copies. Nothing writes here any more; kept so old captures still resolve.

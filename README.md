@@ -2,23 +2,34 @@
   <img src="Resources/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" width="96" height="96" alt="BetterShot clover icon">
 </p>
 
-# BetterShot
+<h1 align="center">BetterShot</h1>
 
-**Capture, edit, and share your screen. Native on macOS.**
+<p align="center">
+  <strong>Capture, edit, and share your screen. Native on macOS.</strong>
+</p>
 
-BetterShot brings screenshots, screen recording, and image and video editing into
-one open-source Mac app. Annotate a bug report, record a walkthrough with your
-camera, or turn a capture into something ready to share. No BetterShot account
-or subscription required.
+<p align="center">
+<a href="https://trendshift.io/repositories/18174?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-18174" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/18174/daily?language=Swift" alt="KartikLabhshetwar%2Fbetter-shot | Trendshift" width="250" height="55"/></a>
+</p>
 
-[![macOS](https://img.shields.io/badge/macOS-26.0+-black.svg)](https://formulae.brew.sh/cask/bettershot)
-[![Build](https://github.com/KartikLabhshetwar/better-shot/actions/workflows/build.yml/badge.svg)](https://github.com/KartikLabhshetwar/better-shot/actions/workflows/build.yml)
-[![License](https://img.shields.io/badge/license-BSD%203--Clause-green.svg)](LICENSE)
+<p align="center">
+  <a href="https://github.com/KartikLabhshetwar/better-shot/releases/latest"><img src="https://img.shields.io/github/v/release/KartikLabhshetwar/better-shot?label=release" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/macOS-14.0+-black.svg" alt="macOS 14 or later">
+  <a href="https://github.com/KartikLabhshetwar/better-shot/actions/workflows/build.yml"><img src="https://github.com/KartikLabhshetwar/better-shot/actions/workflows/build.yml/badge.svg" alt="Build status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSD%203--Clause-green.svg" alt="BSD 3-Clause license"></a>
+</p>
 
-[Download](https://github.com/KartikLabhshetwar/better-shot/releases/latest) ·
-[Website](https://bettershot.site) · [Changelog](CHANGELOG.md) ·
-[Contribute](CONTRIBUTING.md) ·
-[Report a bug](https://github.com/KartikLabhshetwar/better-shot/issues)
+<p align="center">
+  <a href="https://github.com/KartikLabhshetwar/better-shot/releases/latest">Download</a> ·
+  <a href="https://bettershot.site">Website</a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
+  <a href="CONTRIBUTING.md">Contribute</a> ·
+  <a href="https://github.com/KartikLabhshetwar/better-shot/issues">Report a bug</a>
+</p>
+
+BetterShot is a free, open-source Mac app for screenshots, scrolling captures,
+screen recordings, and image and video editing. No account, subscription, or
+cloud service required.
 
 ## Fork: Snap Capture
 
@@ -37,61 +48,46 @@ See [migration and rollback](docs/fork-migration.md) for preserved settings and 
 
 ## Install
 
-Requires **macOS 26 or later**.
-
-With [Homebrew](https://formulae.brew.sh/cask/bettershot):
+Requires macOS 14 or later. Microphone narration needs macOS 15, and narration transcription and teleprompter speech tracking need macOS 26.
 
 ```bash
 brew install --cask bettershot
 ```
 
-Or download the `.dmg` for your Mac from
-[Releases](https://github.com/KartikLabhshetwar/better-shot/releases/latest), drag
-**BetterShot** into **Applications**, and open it. First launch walks you through
-permissions and your first capture.
+Or download the Apple silicon or Intel `.dmg` from
+[Releases](https://github.com/KartikLabhshetwar/better-shot/releases/latest),
+drag BetterShot into Applications, and open it. A short tour walks you through
+permissions, where screenshots are saved, and your first capture.
 
-## What you can do
+## Features
 
-- **Capture anything on screen.** Take region, window, or fullscreen screenshots;
-  extract text with OCR; pick a color as a hex value.
-- **Annotate and frame images.** Add arrows, shapes, text, numbered markers, and
-  highlights. Blur or pixelate sensitive details, crop, rotate, and flip. Add a
-  wallpaper or soft gradient with adjustable padding, corners, and shadows.
-- **Record a walkthrough.** Capture a display, window, or adjustable area with
-  optional system audio, microphone, camera, and teleprompter. Pause and resume
-  from the compact recording bar.
-- **Edit the recording.** Cut clips, adjust speed from 0.25× to 8×, add zooms,
-  transitions, captions, and blur or pixelate masks. Arrange screen and camera
-  in a bubble, overlapping frame, side-by-side layout, or presenter view.
-- **3D video shots.** Use the timeline’s **+ Add > 3D Shot** menu, then choose
-  from eight camera moves and five drifting angles in Effects. Adjust camera
-  orbit, screen fold, distance, and lens, or generate a scene. The same menu adds
-  zoom segments. **Auto Scene** previews a sequence before applying it, keeps
-  generated shots at least one second long, and snaps nearby boundaries to clip cuts.
-  Looks, Camera, Depth Blur, Keyframes, and Timing stay expanded in separate cards,
-  with fixed shortcuts to jump straight to each section. Fold and lens controls
-  are directly visible, and animated properties have one-click curve selection.
-  Compare Start/End thumbnails, drag the orbit preview, and refine exact angles
-  with the tilt sliders. Scene cards show their shot counts; depth blur has a
-  separate enable switch and focus selection.
-  Controls include radial/directional/tilt-shift focus, bokeh highlights, and editable
-  Bézier curves. Preview and export share
-  the GPU compositor. Zoom enlarges the whole 3D card; separate entry/exit controls
-  ease the camera into and out of its shot.
-- **Make the cursor easier to follow.** Choose Recorded, Arrow, Dark, Light, or
-  Dot, with size, smoothing, click effects, and idle hiding. Cursor restyling
-  requires a recorded pointer track; it cannot replace a cursor baked into
-  imported footage.
-- **Keep captures within reach.** Copy, save, pin, edit, share, or drag from the
-  floating capture deck. Find screenshots, recordings, and saved share links in
-  Media Gallery's searchable icon and list views.
-- **Export or share.** Export video as MP4 or MOV at 30 or 60 fps, with resolution
-  and quality controls. Optional cloud sharing uploads to your own Cloudflare
-  R2 bucket and copies a link.
+**Screenshots**
+- Region, window, fullscreen, and [scrolling](#scrolling-capture) capture.
+- Extract text with OCR or pick any on-screen color as hex.
+- Annotate with arrows, shapes, text, numbered markers, highlights, blur, and pixelate.
+- Crop, rotate, and flip without losing editable annotations.
+- Frame captures on a wallpaper, soft gradient, or any custom color with padding, rounded corners, and shadow.
+- Save as PNG or JPEG.
 
-Set a reusable **Default Look** in Settings > General for new screenshots and
-videos, or choose **No Background** to keep them unframed. Original captures and
-source movies remain available for editing, with undo and redo in both editors.
+**Recordings**
+- Record a display, window, or adjustable area with optional system audio, microphone, camera, and teleprompter.
+- Pause, restart, or discard from the compact recording bar. Restart and Discard ask for confirmation in a native macOS dialog; Cancel keeps the recording.
+
+**Video editor**
+- Cut clips, change speed from 0.25x to 8x, and add zooms, transitions, captions, and blur or pixelate masks.
+- Arrange screen and camera as Camera Bubble, Overlap, Side-by-Side, Presenter, Camera Only, or Screen Only.
+- Restyle the cursor (Recorded, Arrow, Dark, Light, Dot) with size, smoothing, click effects, and idle hiding.
+- Add 3D shots: eight camera moves, five drifting angles, Auto Scene, depth blur, and keyframed Bézier curves.
+- Export MP4 or MOV at 30 or 60 fps.
+
+**Everything else**
+- Copy, save, pin, edit, share, or drag captures from the floating preview.
+- Browse screenshots, recordings, and share links in the Media Gallery.
+- Share to [your own Cloudflare R2 bucket](#cloud-sharing) with one click.
+- Trigger any capture from Shortcuts, Raycast, or the terminal with [URL actions](#automation).
+
+Original captures and source movies are never modified. Both editors support
+undo, redo, and native full screen.
 
 <details>
 <summary>See the video editor</summary>
@@ -100,96 +96,131 @@ source movies remain available for editing, with undo and redo in both editors.
 
 </details>
 
-## Your first capture
+## Getting started
 
-1. Open BetterShot and allow screen capture when prompted. Enable Accessibility
-   to use global shortcuts.
-2. Press **⌘⇧4** and select a region, or **⌘⇧2** to open the capture and recording bar.
-3. Use the floating preview to **Copy**, **Save**, **Pin**, or **Edit** your capture.
-   **Share** becomes available after you configure cloud sharing.
-
-### Default shortcuts
+1. Open BetterShot and allow Screen Recording. Enable Accessibility for global shortcuts.
+2. Press `⌘⇧4` to capture a region, or `⌘⇧2` to open the capture and recording bar.
+   Your last area opens already selected: press Return to capture it again, drag
+   its edges to resize it, or drag anywhere to draw a new one.
+3. Use the floating preview to Copy, Save, Pin, Edit, or Share.
 
 | Action | Shortcut |
 | --- | --- |
 | Region screenshot | `⌘⇧4` |
+| Capture previous region again | `⌘⇧1` |
 | Fullscreen screenshot | `⌘⇧3` |
 | Capture and recording bar | `⌘⇧2` |
 | Recording options | `⌘⇧5` |
 | OCR text scan | `⌘⇧O` |
 | Color picker | `⌘⇧C` |
 
-Customize bindings in **Settings > Shortcuts**, including editor tools and
-additional capture and recording actions. Some actions start unassigned.
+Key labels follow your current keyboard layout; number-row shortcuts retain digit
+labels on layouts such as AZERTY. Changing layouts does not change saved bindings.
 
-### Where screenshots go
+Change or add bindings in **Settings > Shortcuts**. Extra actions, such as
+Capture Region & Pin or Edit Clipboard Image, start unassigned.
 
-Captures start in BetterShot's private working storage. **Copy** puts an image on
-the clipboard without creating a file in your configured save folder. Editing,
-pinning, and sharing also keep their working files inside the app.
+Set the background, padding, corner radius, and shadow for new captures in
+**Settings > General > Default Look**.
 
-**Save** writes a file to your configured folder. In the image editor, it works
-before you make any edits and updates the associated file on subsequent saves.
-**Export** lets you choose a new destination.
+Region screenshots use BetterShot’s adjustable selector. Enable
+**Settings > Capture > Region > Capture as soon as I let go** to capture on mouse
+release, or leave it off to adjust the area before confirming. Window screenshots
+and OCR use the native macOS selectors.
+Turn on **Freeze the screen while selecting** in the same section to select from a
+still frame, so video and other moving content hold still; the screenshot uses
+exactly the frame you selected from.
 
-Automatic screenshot saving is **off by default**. Enable it under
-**Settings > General > Saving** to save normal captures while keeping the preview
-or editor available. Explicit Capture & Copy, Edit, and Pin shortcuts bypass it.
-The same settings section lets you customize file names with templates such as
+Saved previews dismiss after **Settings > Overlay > Hide After**, pausing while
+you use the card. **Keep screenshot previews open** holds only unsaved captures;
+choose **Never** under Hide After to keep saved previews open too.
+
+### Scrolling capture
+
+Capture a page or list taller than the screen:
+
+1. Choose **Scrolling Capture** in the menu bar, **Scroll** in the capture bar
+   (`⌘⇧2`), or assign a shortcut in **Settings > Shortcuts**.
+2. Drag over the scrollable content, then scroll down through it. Or click
+   **Auto Scroll** to let BetterShot scroll for you (requires Accessibility).
+3. Click **Stop** to send the stitched image to the capture preview. **×** or
+   Escape discards it.
+
+Fixed headers and scrollbars are left out of the joins, and content that fades
+in while scrolling is captured fully drawn. Captures finish at 30,000 pixels.
+If a join is missed, scroll back up a little and continue.
+
+### Where files go
+
+| Action | Result |
+| --- | --- |
+| **Copy** | Puts the image on the clipboard. No extra file is exported. |
+| **Save** | Writes to your configured folder. Later saves from the editor update the same file. |
+| **Export** | Asks for a new destination. |
+
+New installs also save every normal screenshot to the configured folder
+(Desktop by default). Turn this off under **Settings > General > Saving** to
+keep captures private until you choose Save or Export. Upgrades keep your
+previous behavior. Capture & Copy, Edit, and Pin shortcuts always skip
+automatic saving, and a failed save keeps the capture available for retry.
+
+Each capture is named once, when it is taken, and every action reuses that
+name. Customize it in **Settings > General > Saving** with templates such as
 `standup-{date}-{counter:3}`.
 
 ### Permissions
 
-BetterShot explains each permission during setup. You can manage access later in
-**System Settings > Privacy & Security**.
-
 | Permission | Used for |
 | --- | --- |
-| Screen & System Audio Recording | Screenshots, screen recording, and optional system audio |
-| Accessibility | Global shortcuts from other apps |
-| Input Monitoring | Precise cursor effects and shortcut overlays; plain typing is not recorded |
-| Microphone | Optional voice recording |
-| Camera | Optional camera recording |
+| Screen & System Audio Recording | Screenshots, recordings, and system audio |
+| Accessibility | Global shortcuts |
+| Input Monitoring | Cursor effects and shortcut overlays. Plain typing is never recorded. |
+| Microphone | Voice in recordings |
+| Camera | Camera recording |
 
-If capture or shortcuts still do not work after granting access, save your work,
-quit BetterShot, and reopen it. Check **Settings > Shortcuts** for disabled or
-conflicting bindings.
+Manage access in **System Settings > Privacy & Security**. If capture or
+shortcuts still fail after granting access, quit and reopen BetterShot.
 
 ## Cloud sharing
 
-Capturing and editing work locally. Sharing is optional and uses a Cloudflare
-account and R2 storage that you manage.
+Sharing is optional and uses a Cloudflare R2 bucket you own.
 
-1. Create an R2 bucket with a public address, and an
-   [R2 API token](https://developers.cloudflare.com/r2/api/tokens/) with
-   **Object Read & Write** permission scoped to that bucket.
-2. In **Settings > Sharing**, enter your Account ID, Access Key ID, Secret Access
-   Key, Bucket, and HTTPS Public Bucket URL.
-3. Click **Test Connection**. A successful test enables **Upload when I share**.
-4. Choose **Share** from a capture or editor to upload and copy its link.
+1. Create an R2 bucket with a public URL and an
+   [API token](https://developers.cloudflare.com/r2/api/tokens/) with
+   Object Read & Write access to that bucket.
+2. Enter your credentials in **Settings > Sharing** and click **Test Connection**.
+   If you created the bucket in a jurisdiction (EU, US, or FedRAMP), choose the
+   same **Jurisdiction**; otherwise R2 answers with `AccessDenied`. A successful
+   test turns on **Upload when I share**; while it is off, Share uploads nothing.
+3. Click **Share** on any capture to upload it and copy the link.
 
-Credentials are stored in your Mac's login Keychain. Shared media is served from
-your bucket. By default, links open a viewer on `bettershot.site`; enable
-**Copy direct file links** for the raw file URL, useful in Markdown or embeds.
-Shared links are publicly accessible to anyone who has the link.
+Credentials are stored in your login Keychain. Links open a viewer on
+`bettershot.site` by default. Turn on **Copy direct file links** to get the raw
+file URL instead. Anyone with a link can view it. Outside of sharing, BetterShot
+only goes online to check GitHub for updates.
 
-The app also contacts GitHub to check for updates and download releases.
+## Automation
 
-## Automate captures
-
-Use the `bettershot://` URL scheme from Shortcuts, Raycast, Alfred, or a shell:
+Trigger captures from Shortcuts, Raycast, Alfred, or the terminal:
 
 ```bash
 open 'bettershot://capture/region'
 ```
 
-Supported actions: `capture/region`, `capture/fullscreen`, `capture/window`,
-`ocr`, `color-picker`, `record`, and `settings`.
+| Route | Action |
+| --- | --- |
+| `capture/region` | Region screenshot |
+| `capture/fullscreen` | Fullscreen screenshot |
+| `capture/window` | Window screenshot |
+| `capture/scroll` | Scrolling capture |
+| `ocr` | OCR text scan |
+| `color-picker` | Color picker |
+| `record` | Start a recording |
+| `settings` | Open Settings |
 
 ## Build from source
 
-Requires **macOS 26+**, **Xcode 26+** with its command-line tools selected, and
-**XcodeGen**.
+Requires Xcode 26 and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```bash
 brew install xcodegen
@@ -199,101 +230,17 @@ make release
 open .build/Build/Products/Release/BetterShot.app
 ```
 
-`make release` builds unsigned and does not require the maintainer's signing
-identity. The app uses SwiftUI and AppKit, with
-[DockProgress](https://github.com/sindresorhus/DockProgress) and a locally adapted
-[TourKit](Vendor/TourKit/BETTERSHOT.md) Swift package. The website is a separate Next.js project.
+`make release` builds unsigned, so no signing identity is needed. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for Xcode setup, the code map, and tests.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for Xcode setup, the code map, tests, and
-submission guidance.
+## Contributing
 
-### Guided setup and update notes
-
-New installs open a short TourKit guide, followed by optional permissions and a
-practice capture. Use **Settings → About → Take the Tour** to revisit it.
-After an update, **What’s New** shows the bundled changelog once, including releases
-you skipped. It also stays available in Settings → About. Closing update notes
-continues your usual capture-bar startup preference; completed setup is preserved.
-
-Hover over empty space in the video editor’s 3D timeline to see where a shot will
-fit before clicking. The dashed preview shows its duration; hovering never saves
-an effect. The **+ Add** menu remains available for Zoom and 3D Shot.
-
-The Scenes buttons show each scene’s camera sequence and shot count before
-replacing the selected shot. Both editors support the green window button for
-native full screen; **Settings → General → Open editors in full screen** controls
-whether new editor windows enter it automatically.
-
-
-## Help and contribute
-
-Found a bug or have an idea? [Open an issue](https://github.com/KartikLabhshetwar/better-shot/issues)
-with your macOS and BetterShot versions, what you expected, and steps to reproduce.
-Screenshots or short recordings help; remove private information before posting.
-
-Code, documentation, reproducible bug reports, and accessibility feedback are all
-welcome. Start with the [contributor guide](CONTRIBUTING.md) and follow our
-[Code of Conduct](CODE_OF_CONDUCT.md).
+Bug reports, fixes, docs, and accessibility feedback are all welcome. When
+[opening an issue](https://github.com/KartikLabhshetwar/better-shot/issues),
+include your macOS and BetterShot versions and steps to reproduce. Read the
+[contributor guide](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md)
+before opening a pull request.
 
 Built by [Kartik Labhshetwar](https://x.com/code_kartik) and
 [contributors](https://github.com/KartikLabhshetwar/better-shot/graphs/contributors).
-If BetterShot helps you, you can [support its development](https://www.buymeacoffee.com/code_kartik).
-
-## License
-
-[BSD 3-Clause](LICENSE) for original BetterShot code; adapted Cap rendering uses
-AGPLv3; the notch also includes GPLv3 Boring Notch adaptations. See [third-party notices](Resources/Licenses/NOTICE.md) for distribution
-terms and the bundled TourKit MIT license.
-
-### Optional notch mode (v0.5.6)
-
-In **Settings > General > Capture Mode**, choose **Normal Mode** (the default)
-or **Notch Mode**. Notch mode puts image/video previews, saved shelf items,
-quick editing, and related status at the top of the capture display.
-The expanded notch is a horizontal shelf with **All, Text, Images, Videos, and Colors**
-filters in a compact 560-point panel without capture or recording tools. Hold Control (or your chosen modifier) and drag to capture an area; drawing directly on the frozen screen is an optional alternative. Pressing the modifier alone does not open the notch. The folder menu provides the gallery plus Save All and Dismiss All for pending previews.
-The **All** filter orders screenshots, recordings, text, and colors together by recency, with a pending capture first.
-OCR text and picked colors are copied automatically and remain on the shelf
-with Copy and Dismiss actions until removed from history. Notch Mode shows no
-toast notifications: Copy confirms on its button, and failures appear as inline
-instructions. Text is selectable; colors show their hex code and swatch. Text and colors captured in Notch Mode are retained locally across launches. Normal Mode does not add to this history.
-Scroll sideways to browse the cards. Click an image for the quick editor, or a video for the video editor;
-rounded media cards show a title at rest and reveal Copy, Save, Edit, Pin, Cloud Share, and pending-capture Dismiss on hover or keyboard focus.
-Drag image previews into compatible editors. Drag a text card’s text or title to insert text, or a color card’s hex label/title to insert its color code. Color cards show the sampled color with a readable hex label and Copy button.
-Use your **Recording options** shortcut (default **⌘⇧5**) to open the compact floating recording strip in either capture mode. Choose Display, Window, or Area to start, and toggle Camera, Mic, Audio, or Script directly in the popover. The shared Timer menu configures both screenshot and recording delays. Recording controls never move into the notch.
-The media card’s **Edit** hover action opens the full editor. Quick Edit opens a small native panel beneath the notch with drawing, arrow, blur, crop, background, and undo controls. **Done** retains a lossless image and editable annotations in BetterShot’s private library; **Save** explicitly exports a file.
-The notch uses an opaque black surface to match the camera cutout, with native
-macOS controls and readable dark-appearance labels in either system appearance.
-
-Switching to Notch Mode opens the preview shelf immediately, including its empty state. Dismissing the last active preview returns it to the compact resting notch. While content is active, moving away collapses
-the notch after a short delay and hover expands it. Brief transitions respect
-Reduce Motion.
-Preview menus and confirmations stay open while you use them. Click
-remains available for keyboard/accessibility use. Other displays use a floating
-panel that collapses to compact preview status. The shelf combines pending captures and recent library images/videos without
-duplicate cards. Open Gallery shows the full library. Pending
-captures remain until you act on them. Switching back restores your normal overlay
-layout and timing. Capture exclusion and private staging work in both modes.
-
-
-**Hold-key capture**
-
-With Notch Mode and Accessibility access enabled, hold Control and drag to select a rectangular screenshot area. Pressing Control alone leaves the notch hidden. Release the mouse to capture; release the key early or press Escape to cancel. No annotations are drawn on the screen. The shutter sound follows **General > Play Sound**.
-
-Choose Control, Option, Shift, or Command under **Settings > Shortcuts > Notch Capture Gesture**. **Hold action** defaults to **Select an area**. **Draw on screen** is an explicit alternative for red freehand annotations: hold the key briefly, draw, then release to save editable strokes. Assigning Option pauses the optional Option voice gesture; voice remains available in the quick editor. Standard region shortcuts still use the macOS screenshot selector.
-
-**Copied colors** are collected automatically while Notch Mode is active: copy a standalone `#RGB` or `#RRGGBB` code and it appears as a swatch under All and Colors, with Copy and drag-out. Turn this off with **Keep copied colors in Notch Mode**. Ordinary clipboard text remains separately opt-in, and private clipboard markers are respected. Normal Mode collects neither.
-
-**Local voice screenshots and copied text**
-
-- Open an image’s quick editor and choose the microphone to draw and speak. **Done** transcribes on your Mac and keeps the annotated image and text together on the shelf. Microphone permission is requested only when starting voice capture. Speech uses macOS 26’s on-device SpeechAnalyzer; supported Apple silicon/languages and an initial system language-model download are required. There is no cloud transcription fallback.
-- **Hold Option for voice annotation** is off by default so Option remains available to apps such as Wispr Flow. You can opt in under **Settings > Shortcuts > Notch Capture Gesture**. With Accessibility and Microphone access, hold Option briefly without another key, annotate over the captured screen, and release to finish. The annotated image and local transcript stay together as one shelf item. Voice sessions stop at two minutes; the microphone is stopped before transcription begins.
-- Copy a voice card to put image, file, and transcript representations on the clipboard. The receiving app chooses which representation to paste; use the card’s context menu **Copy transcript** to paste text separately. The voice note’s **Open image** returns to editing.
-- **Keep copied text in Notch Mode** is an independent, opt-in setting. While Notch Mode is active, it stores up to 50 text/color/voice entries locally (100 KB per text), skips clipboard content marked concealed/transient/generated by the source app, and starts with your next copy. Unmarked sensitive text can still be saved. Turning it off pauses collection; **Clear Shelf Text** removes retained text and transcripts without deleting screenshots. Clipboard image/file monitoring and keyboard sounds are not included.
-- OCR and sampled colors are saved in Notch Mode without enabling clipboard monitoring. Voice audio is temporary: it is removed after successful completion or explicit discard. If transcription fails, the editor retains the audio for retry and offers **Keep image without voice**. Closing an unsaved quick edit asks before discarding it.
-
-Notch UI and hover interactions include code from [Boring Notch](https://github.com/TheBoredTeam/boring.notch), credited to TheBoredTeam and its contributors. See [source and license notices](Resources/Licenses/NOTICE.md).
-
-Window screenshots use the native macOS window picker. Choose a window and click
-**Share This Window** to take one screenshot; BetterShot does not start a recording.
-Cancel leaves the current capture unchanged.
+If BetterShot helps you, consider [supporting its development](https://www.buymeacoffee.com/code_kartik).

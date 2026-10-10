@@ -167,6 +167,7 @@ final class RecordingStudioModel {
     private(set) var keystrokeTimeline = KeystrokeCaptionTimeline.empty
     var selectedCueID: UUID?
     private(set) var clipTimeline = RecordingClipTimeline(segments: [])
+    private(set) var clipSpeedDraft = RecordingClipSpeedDraft()
     var selectedClipID: UUID?
     var timelineHoverTime: TimeInterval?
     /// Storyboard tiles for the clip lane, sampled on demand at whatever
@@ -206,6 +207,8 @@ final class RecordingStudioModel {
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var exportTask: Task<Void, Never>?
+    /// Whether the last export was a Save updating the recording's saved file, so Retry repeats it.
+    private var exportReplacesSavedFile = false
     private var audioExportTask: Task<Void, Never>?
     private var replacementAudioTask: Task<Void, Never>?
     /// The screen movie's video track, kept from load so the player item
@@ -688,7 +691,8 @@ final class RecordingStudioModel {
     func setClipSpeed(_ speed: Double, forClipID id: UUID) {
         guard let segment = clipTimeline.segments.first(where: { $0.id == id }) else { return }
         let clamped = min(max(speed, RecordingClipSegment.minimumSpeed), RecordingClipSegment.maximumSpeed)
-        guard abs(segment.speed - clamped) > 0.000_001 else { return }
+        guard clipSpeedDraft.propose(clamped, forClipID: id),
+              abs(segment.speed - clamped) > 0.000_001 else { return }
         var replacement = segment
         replacement.speed = clamped
         let next = clipTimeline.replacing(replacement)
@@ -698,6 +702,13 @@ final class RecordingStudioModel {
             playheadTime: min(currentTime, next.duration),
             actionName: "Change Clip Speed"
         )
+    }
+
+    func beginClipSpeedEdit() { clipSpeedDraft.begin() }
+
+    func endClipSpeedEdit() {
+        guard let change = clipSpeedDraft.end() else { return }
+        setClipSpeed(change.speed, forClipID: change.clipID)
     }
 
     func resetClips() {
@@ -1385,7 +1396,7 @@ final class RecordingStudioModel {
         writeDraftNow()
     }
 
-    /// ⌘S. Commits the working copy to `edit.json` and clears the draft.
+    /// ⌘S. Commits the working copy to `edit.json`, clears the draft, and re-renders the file the recording was saved to.
     func saveProject() {
         guard isLoaded, let session else { return }
         projectSaveTask?.cancel()
@@ -1399,6 +1410,9 @@ final class RecordingStudioModel {
             dropStaleRender(for: document, in: session)
             RecordingProjectStore.shared.reload()
             flashSaveConfirmation()
+            if RecordingDeliverable.exportURL(for: session) != nil {
+                export(replacingExport: true)
+            }
         } catch {
             print("Failed to save recording project: \(error)")
         }
@@ -1522,8 +1536,12 @@ final class RecordingStudioModel {
 
     /// Only narrated sessions can be transcribed; the mic requirement means
     /// legacy bare movies and silent captures never show the section.
-    var canTranscribe: Bool {
+    var hasNarration: Bool {
         manifest?.includesMicrophone == true
+    }
+
+    var canTranscribe: Bool {
+        hasNarration && RecordingTranscriptionService.isAvailable
     }
 
     var hasSubtitles: Bool {
@@ -1549,7 +1567,7 @@ final class RecordingStudioModel {
     }
 
     func transcribe() {
-        guard !transcriptionState.isTranscribing, isLoaded else { return }
+        guard #available(macOS 26.0, *), !transcriptionState.isTranscribing, isLoaded else { return }
         transcriptionState = .transcribing
         let movieURL = screenURL
         transcriptionTask = Task { [weak self] in
@@ -2309,16 +2327,19 @@ final class RecordingStudioModel {
     }
 
     /// The package keeps its own name because that name is the project's
-    /// identity in the gallery. What leaves for the save folder is a
-    /// deliverable, so it is named from the template like everything else.
-    ///
-    /// A function rather than a property because each call spends one
-    /// `{counter}` number. Call it once per export and hold the result.
+    /// identity in the gallery. What leaves for the save folder carries the
+    /// recording's name, rendered from the template once, when it was made.
     private func makeExportFileName() -> String {
-        ScreenshotFileNaming.currentFileName(
-            extension: exportSettings.effectiveContainer.fileExtension,
-            kind: .recording
-        )
+        recordingFileName(extension: exportSettings.effectiveContainer.fileExtension)
+    }
+
+    /// A movie opened without a package has no stored name, so each export
+    /// takes a new one from the template.
+    private func recordingFileName(extension pathExtension: String) -> String {
+        guard let session else {
+            return ScreenshotFileNaming.currentFileName(extension: pathExtension, kind: .recording)
+        }
+        return RecordingDeliverable.fileName(for: session, extension: pathExtension)
     }
 
     /// Entry point for the export options popover. Assigning settings marks
@@ -2332,10 +2353,25 @@ final class RecordingStudioModel {
     }
 
     func export() {
+        export(replacingExport: false)
+    }
+
+    func retryExport() {
+        export(replacingExport: exportReplacesSavedFile)
+    }
+
+    /// Waits for a running export, so closing after Save does not cancel the update to the saved file.
+    func waitForExport() async {
+        await exportTask?.value
+    }
+
+    private func export(replacingExport: Bool) {
         // One render at a time: the share pipeline uses the same exporter,
         // so a second encode would just fight it for the media engine.
         guard !exportState.isExporting, !shareState.isBusy, isLoaded else { return }
         pause()
+        exportReplacesSavedFile = replacingExport
+        let session = session
 
         // A fresh deliverable (e.g. right after a share) is byte-identical
         // to what this render would produce - same configuration builds
@@ -2345,12 +2381,12 @@ final class RecordingStudioModel {
             let suggestedFileName = makeExportFileName()
             exportTask = Task { [weak self] in
                 do {
-                    let savedURL = try await VideoFileActions.saveToDefaultLocation(
-                        from: cached,
-                        suggestedFileName: suggestedFileName
-                    )
-                    RecordingExportNotifier.notifySuccess(fileURL: savedURL)
-                    RecordingExportNotifier.revealIfPreferred(fileURL: savedURL)
+                    let savedURL = try await RecordingDeliverable.save(
+                        cached, named: suggestedFileName, for: session, replacingExport: replacingExport)
+                    if !replacingExport {
+                        RecordingExportNotifier.notifySuccess(fileURL: savedURL)
+                        RecordingExportNotifier.revealIfPreferred(fileURL: savedURL)
+                    }
                     self?.exportState = .finished(savedURL)
                 } catch {
                     self?.exportState = .failed(error.localizedDescription)
@@ -2363,7 +2399,6 @@ final class RecordingStudioModel {
 
         let configuration = makeExportConfiguration()
         let suggestedFileName = makeExportFileName()
-        let session = session
         let renderedDocument = currentDocument()
 
         let dockProgressID = DockExportProgressCoordinator.shared.start()
@@ -2384,13 +2419,13 @@ final class RecordingStudioModel {
                 let deliverableURL = try session?.installFinalVideo(
                     movingFrom: temporaryURL, renderedFrom: renderedDocument
                 ) ?? temporaryURL
-                let savedURL = try await VideoFileActions.saveToDefaultLocation(
-                    from: deliverableURL,
-                    suggestedFileName: suggestedFileName
-                )
+                let savedURL = try await RecordingDeliverable.save(
+                    deliverableURL, named: suggestedFileName, for: session, replacingExport: replacingExport)
                 DockExportProgressCoordinator.shared.finish(dockProgressID)
-                RecordingExportNotifier.notifySuccess(fileURL: savedURL)
-                RecordingExportNotifier.revealIfPreferred(fileURL: savedURL)
+                if !replacingExport {
+                    RecordingExportNotifier.notifySuccess(fileURL: savedURL)
+                    RecordingExportNotifier.revealIfPreferred(fileURL: savedURL)
+                }
                 self?.exportState = .finished(savedURL)
             } catch is CancellationError {
                 DockExportProgressCoordinator.shared.finish(dockProgressID)
@@ -2430,12 +2465,8 @@ final class RecordingStudioModel {
         return abs(drift) > 0.25 ? drift : nil
     }
 
-    /// Spends one `{counter}` number per call, like `makeExportFileName`.
     private func makeAudioExportFileName() -> String {
-        ScreenshotFileNaming.currentFileName(
-            extension: audioExportFormat.fileExtension,
-            kind: .recording
-        )
+        recordingFileName(extension: audioExportFormat.fileExtension)
     }
 
     /// Writes the edited soundtrack on its own, for cleanup in a tool that
@@ -2589,7 +2620,7 @@ final class RecordingStudioModel {
     // MARK: - Share to cloud
 
     var canShareToCloud: Bool {
-        CloudUploader.shared.isConfigured
+        CloudUploader.shared.canShare
     }
 
     /// The Loom loop: render the current edits, cache the result as the
@@ -2675,6 +2706,8 @@ final class RecordingStudioModel {
                 let result = try await CloudUploader.shared.upload(
                     itemID: itemID,
                     fileURL: uploadURL,
+                    named: session.map(RecordingDeliverable.name(for:))
+                        ?? uploadURL.deletingPathExtension().lastPathComponent,
                     title: options.trimmedTitleOrNil
                 )
 

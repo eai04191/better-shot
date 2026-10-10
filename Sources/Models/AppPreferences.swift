@@ -29,6 +29,7 @@ enum AppPreferences {
     private static let recordingMicrophoneDeviceIDKey = "bs_recordingMicrophoneDeviceID"
     private static let lastRegionRectKey = "bs_lastRegionRect"
     private static let captureRegionOnReleaseKey = "bs_captureRegionOnRelease"
+    private static let freezeScreenDuringRegionCaptureKey = "bs_freezeScreenDuringRegionCapture"
 
     // MARK: - Snap Capture
     // The legacy key says Px, but the stored margin has always been logical points.
@@ -69,9 +70,19 @@ enum AppPreferences {
 
     // MARK: - General
     static var saveDirectory: String {
-        get { UserDefaults.standard.string(forKey: saveDirKey) ?? NSHomeDirectory() + "/Desktop" }
+        get { UserDefaults.standard.string(forKey: saveDirKey) ?? defaultSaveDirectory }
         set { UserDefaults.standard.set(newValue, forKey: saveDirKey) }
     }
+
+    /// The Desktop, except under tests: a check that forgets to choose a folder
+    /// must never write into the real Desktop.
+    private static let defaultSaveDirectory: String = {
+        if ProcessInfo.processInfo.environment["BETTERSHOT_TESTING"] == "1" {
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("BetterShotSaveTests-\(UUID().uuidString)", isDirectory: true).path
+        }
+        return NSHomeDirectory() + "/Desktop"
+    }()
 
     static var copyAfterSave: Bool {
         get { UserDefaults.standard.object(forKey: copyAfterSaveKey) as? Bool ?? true }
@@ -91,11 +102,6 @@ enum AppPreferences {
             return rect.isEmpty ? nil : rect
         }
         set { UserDefaults.standard.set(newValue.map(NSStringFromRect), forKey: lastRegionRectKey) }
-    }
-
-    static let presentationModeKey = "bs_presentationMode"
-    static var presentationMode: CapturePresentationMode {
-        CapturePresentationMode(rawValue: UserDefaults.standard.string(forKey: presentationModeKey) ?? "") ?? .normal
     }
 
     // MARK: - Overlay
@@ -237,9 +243,9 @@ enum AppPreferences {
         set { UserDefaults.standard.set(newValue, forKey: recordingMicrophoneDeviceIDKey) }
     }
 
-    static let editorOpensFullScreenKey = "bs_editorOpensFullScreen"
+    static let editorOpensFullScreenKey = "bs_editorOpensFullScreenOptIn"
     static var editorOpensFullScreen: Bool {
-        UserDefaults.standard.object(forKey: editorOpensFullScreenKey) as? Bool ?? true
+        UserDefaults.standard.bool(forKey: editorOpensFullScreenKey)
     }
 
     static let openEditorAfterRecordingKey = "bs_openEditorAfterRecording"
@@ -271,6 +277,12 @@ enum AppPreferences {
     static var captureRegionOnRelease: Bool {
         get { UserDefaults.standard.bool(forKey: captureRegionOnReleaseKey) }
         set { UserDefaults.standard.set(newValue, forKey: captureRegionOnReleaseKey) }
+    }
+
+    /// Show and crop a captured frame while selecting a screenshot region.
+    static var freezeScreenDuringRegionCapture: Bool {
+        get { UserDefaults.standard.bool(forKey: freezeScreenDuringRegionCaptureKey) }
+        set { UserDefaults.standard.set(newValue, forKey: freezeScreenDuringRegionCaptureKey) }
     }
 
     // MARK: - History
@@ -353,30 +365,30 @@ enum OverlayCardSize: String, CaseIterable, Identifiable {
     /// Hover control scale, deliberately sub-linear to the thumbnail ratio.
     var controlScale: CGFloat {
         switch self {
-        case .small: return 1.0
-        case .medium: return 1.25
-        case .large: return 1.5
+        case .small: return 1.15
+        case .medium: return 1.35
+        case .large: return 1.6
         }
     }
 
     /// The visible thumbnail drawn inside the panel.
     var thumbnailSize: CGSize {
         switch self {
-        case .small: return CGSize(width: 130, height: 98)
-        case .medium: return CGSize(width: 190, height: 140)
-        case .large: return CGSize(width: 250, height: 180)
+        case .small: return CGSize(width: 180, height: 130)
+        case .medium: return CGSize(width: 240, height: 172)
+        case .large: return CGSize(width: 300, height: 216)
         }
     }
 }
 
+/// Formats ImageIO can encode. macOS decodes WebP but cannot write it.
 enum ExportFormat: String, CaseIterable {
-    case png, jpeg, webp
+    case png, jpeg
 
     var utType: String {
         switch self {
         case .png: return "public.png"
         case .jpeg: return "public.jpeg"
-        case .webp: return "public.webp"
         }
     }
 
@@ -384,7 +396,6 @@ enum ExportFormat: String, CaseIterable {
         switch self {
         case .png: return "png"
         case .jpeg: return "jpg"
-        case .webp: return "webp"
         }
     }
 

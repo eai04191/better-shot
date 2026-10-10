@@ -20,16 +20,26 @@ nonisolated struct RecordingProjectMetadata: Codable, Sendable, Equatable {
     /// draft, which is what makes "Delete and close" safe to offer.
     var savedAt: Date?
     var lastOpenedAt: Date?
+    /// The deliverable's file name, rendered from the template once when the
+    /// recording was made. Save and Export reuse it with their own extension.
+    var fileName: String?
+    /// The save-folder file last written for this recording. Later Saves
+    /// replace it instead of adding a copy beside it.
+    var exportPath: String?
 
     init(
         version: Int? = RecordingProjectMetadata.currentVersion,
         displayName: String? = nil,
         savedAt: Date? = nil,
-        lastOpenedAt: Date? = nil
+        lastOpenedAt: Date? = nil,
+        fileName: String? = nil,
+        exportPath: String? = nil
     ) {
         self.version = version
         self.displayName = displayName
         self.savedAt = savedAt
         self.lastOpenedAt = lastOpenedAt
+        self.fileName = fileName
+        self.exportPath = exportPath
     }
 }

@@ -1,6 +1,23 @@
 import Foundation
 import Security
 
+/// Where an R2 bucket's data is held. Cloudflare serves a jurisdictional bucket only from that jurisdiction's endpoint.
+enum R2Jurisdiction: String, CaseIterable, Sendable {
+    case standard = ""
+    case eu
+    case us
+    case fedramp
+
+    var title: String {
+        switch self {
+        case .standard: "None"
+        case .eu: "European Union"
+        case .us: "United States"
+        case .fedramp: "FedRAMP"
+        }
+    }
+}
+
 /// Immutable snapshot of R2 credentials for passing across actor boundaries.
 struct R2Credentials: Sendable {
     let accountID: String
@@ -10,9 +27,21 @@ struct R2Credentials: Sendable {
     let accessKeyID: String
     let secretAccessKey: String
     let enabled: Bool
+    let jurisdiction: R2Jurisdiction
+
+    var host: String {
+        let subdomain = jurisdiction == .standard ? accountID : "\(accountID).\(jurisdiction.rawValue)"
+        return "\(subdomain).r2.cloudflarestorage.com"
+    }
 
     var isConfigured: Bool {
         !accountID.isEmpty && !bucket.isEmpty && !publicBaseURL.isEmpty && !accessKeyID.isEmpty && !secretAccessKey.isEmpty
+    }
+
+    /// Why Share must not upload; nil when it may. "Upload when I share" is the consent to publish.
+    var shareBlocker: String? {
+        if !isConfigured { return "R2 sharing is not configured. Add your credentials in Settings > Sharing." }
+        return enabled ? nil : "Uploads are off. Turn on Upload when I share in Settings > Sharing."
     }
 }
 
@@ -33,6 +62,8 @@ final class R2CredentialStore {
         static let publicBaseURL = "bs_r2_publicBaseURL"
         static let useDirectLinks = "bs_r2_useDirectLinks"
         static let enabled = "bs_r2_enabled"
+        static let enabledMigrated = "bs_r2_enabledMigrated"
+        static let jurisdiction = "bs_r2_jurisdiction"
         static let accessKeyID = "accessKeyID"
         static let secretAccessKey = "secretAccessKey"
     }
@@ -42,6 +73,7 @@ final class R2CredentialStore {
     private(set) var _publicBaseURL: String = ""
     private(set) var _useDirectLinks: Bool = false
     private(set) var _enabled: Bool = false
+    private(set) var _jurisdiction: R2Jurisdiction = .standard
     private(set) var _accessKeyID: String = ""
     private(set) var _secretAccessKey: String = ""
     private(set) var keychainAccess: KeychainAccess = .empty
@@ -96,6 +128,14 @@ final class R2CredentialStore {
         }
     }
 
+    var jurisdiction: R2Jurisdiction {
+        get { _jurisdiction }
+        set {
+            _jurisdiction = newValue
+            defaults.set(newValue.rawValue, forKey: Keys.jurisdiction)
+        }
+    }
+
     var accessKeyID: String {
         get { _accessKeyID }
         set {
@@ -116,6 +156,13 @@ final class R2CredentialStore {
         !_accountID.isEmpty && !_bucket.isEmpty && !_publicBaseURL.isEmpty && !_accessKeyID.isEmpty && !_secretAccessKey.isEmpty
     }
 
+    var canShare: Bool { snapshot().shareBlocker == nil }
+
+    /// 0.4.3-0.5.6 installs saved keys without writing the toggle; the first launch of this build turns those on once, and any later missing value means OFF.
+    nonisolated static func resolvedEnabled(stored: Bool?, hasKeys: Bool, hasMigrated: Bool = false) -> Bool {
+        stored ?? (hasMigrated ? false : hasKeys)
+    }
+
     func snapshot() -> R2Credentials {
         R2Credentials(
             accountID: _accountID,
@@ -124,7 +171,8 @@ final class R2CredentialStore {
             useDirectLinks: _useDirectLinks,
             accessKeyID: _accessKeyID,
             secretAccessKey: _secretAccessKey,
-            enabled: _enabled
+            enabled: _enabled,
+            jurisdiction: _jurisdiction
         )
     }
 
@@ -133,13 +181,21 @@ final class R2CredentialStore {
         _bucket = defaults.string(forKey: Keys.bucket) ?? ""
         _publicBaseURL = defaults.string(forKey: Keys.publicBaseURL) ?? ""
         _useDirectLinks = defaults.bool(forKey: Keys.useDirectLinks)
-        _enabled = defaults.bool(forKey: Keys.enabled)
+        _jurisdiction = defaults.string(forKey: Keys.jurisdiction).flatMap(R2Jurisdiction.init(rawValue:)) ?? .standard
 
         let accessKey = Self.getKeychainItem(key: Keys.accessKeyID)
         let secret = Self.getKeychainItem(key: Keys.secretAccessKey)
         _accessKeyID = accessKey.value ?? ""
         _secretAccessKey = secret.value ?? ""
         keychainAccess = Self.access(of: [accessKey.status, secret.status])
+
+        let storedEnabled = defaults.object(forKey: Keys.enabled) as? Bool
+        let hasMigrated = defaults.bool(forKey: Keys.enabledMigrated)
+        _enabled = Self.resolvedEnabled(stored: storedEnabled, hasKeys: isConfigured, hasMigrated: hasMigrated)
+        if !hasMigrated {
+            defaults.set(_enabled, forKey: Keys.enabled)
+            defaults.set(true, forKey: Keys.enabledMigrated)
+        }
     }
 
     /// Wipes the stored keys so the next save writes a fresh item owned by this build, which is the only way past an access list a re-signed app no longer matches.

@@ -2,7 +2,6 @@ import AppKit
 import AVFoundation
 import Carbon
 import SwiftUI
-import TourKit
 @testable import BetterShot
 
 /// Offscreen snapshots and model checks, plus a brief native transfer-toast lifecycle check.
@@ -11,20 +10,11 @@ import TourKit
 @MainActor
 func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
     try await checkSnapCapture()
-    // A failed notch check may leave the test executable's defaults in notch mode.
-    // The general overlay/toast checks explicitly exercise normal presentation.
-    let defaults = UserDefaults.standard
-    let previousMode = defaults.object(forKey: AppPreferences.presentationModeKey)
-    defaults.set("normal", forKey: AppPreferences.presentationModeKey)
-    defer {
-        if let previousMode { defaults.set(previousMode, forKey: AppPreferences.presentationModeKey) }
-        else { defaults.removeObject(forKey: AppPreferences.presentationModeKey) }
-    }
     if ProcessInfo.processInfo.environment["BETTERSHOT_CHECK_EDITOR_WINDOWS"] == "1" {
         try await checkEditorWindowInteractions(imageURL: imageURL, movieURL: movieURL)
     }
     try checkCaptureControlsUI()
-    try await checkNotchPresentation(imageURL: imageURL, movieURL: movieURL)
+    checkRecordingConfirmations()
     try checkImageTransforms(imageURL: imageURL)
     try await checkColorPickerAndToast()
     try await checkPreviewOverlay(imageURL: imageURL)
@@ -40,8 +30,10 @@ func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
                          "Editor chrome must remain neutral in both appearances")
         }
     }
-    let suiteName = "BetterShot-shortcuts-" + UUID().uuidString
+    // A fixed suite, cleared first: a UUID name left one plist per run behind.
+    let suiteName = "BetterShotTests-shortcuts"
     let shortcutDefaults = UserDefaults(suiteName: suiteName)!
+    shortcutDefaults.removePersistentDomain(forName: suiteName)
     defer { shortcutDefaults.removePersistentDomain(forName: suiteName) }
     let shortcuts = ShortcutService.Shortcut.self
     precondition(shortcuts.defaultRegion.keyCode == UInt32(kVK_ANSI_4))
@@ -246,6 +238,30 @@ func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
     }
     videoModel.setClipSpeed(1, forClipID: speedClipID)
     print("PASS custom fractional clip speeds update the editor timeline")
+
+    let dragModel = RecordingStudioModel(url: movieURL)
+    await dragModel.load()
+    defer { dragModel.teardown() }
+    let dragClipID = dragModel.clipTimeline.segments[0].id
+    precondition(!dragModel.canUndo, "A freshly loaded recording starts with no undo history")
+    dragModel.beginClipSpeedEdit()
+    for tick in [1.2, 1.4, 1.6] {
+        dragModel.setClipSpeed(tick, forClipID: dragClipID)
+        precondition(dragModel.clipTimeline.segments[0].speed == 1, "A drag tick must not rebuild the timeline")
+    }
+    dragModel.endClipSpeedEdit()
+    precondition(dragModel.clipTimeline.segments[0].speed == 1.6, "Release commits the last dragged speed once")
+    precondition(dragModel.canUndo, "A completed drag registers exactly one undo step")
+    dragModel.undo()
+    precondition(dragModel.clipTimeline.segments[0].speed == 1, "One undo restores the pre-drag speed")
+    precondition(!dragModel.canUndo, "A single undo fully reverts the one-step drag")
+    dragModel.beginClipSpeedEdit()
+    dragModel.setClipSpeed(1.3, forClipID: dragClipID)
+    dragModel.setClipSpeed(1, forClipID: dragClipID)
+    dragModel.endClipSpeedEdit()
+    precondition(dragModel.clipTimeline.segments[0].speed == 1, "Dragging back to the start settles on the original speed")
+    precondition(!dragModel.canUndo, "Returning to the original value during a drag adds no undo step")
+    print("PASS a speed slider drag registers exactly one undo step and a round trip adds none")
     let originalCues = videoModel.zoomCues
     videoModel.addZoomCue(fromEditorTime: 0.25, toEditorTime: 1.25)
     precondition(videoModel.zoomEnabled, "Adding a zoom must enable playback of zooms")
@@ -338,17 +354,6 @@ func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
             preconditionFailure("An unwritable destination must report failure")
         } catch {}
     }
-    for demo in OnboardingDemo.allCases {
-        let posterURL = demo.url(extension: "png", in: appBundle)!
-        let poster = NSImage(contentsOf: posterURL)!
-        precondition(poster.size.width / poster.size.height == 16 / 9, "Demo posters must match the player aspect ratio")
-        let movie = AVURLAsset(url: demo.url(extension: "mp4", in: appBundle)!)
-        let playable = try await movie.load(.isPlayable)
-        let duration = try await movie.load(.duration).seconds
-        let audio = try await movie.loadTracks(withMediaType: .audio)
-        precondition(playable && abs(duration - 6) < 0.1 && audio.isEmpty,
-                     "Onboarding demos must be playable, six seconds, and silent")
-    }
     precondition(OnboardingPermissionStatus.media(.authorized) == .allowed)
     precondition(OnboardingPermissionStatus.media(.notDetermined) == .notEnabled)
     precondition(OnboardingPermissionStatus.media(.denied) == .denied)
@@ -374,30 +379,18 @@ func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
     let releaseVersion = appBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as! String
     let currentNotes = releaseNotes.filter { $0.version == releaseVersion }
     precondition(currentNotes.count == 1 && !currentNotes[0].body.isEmpty, "Every shipped version needs bundled release notes")
-    let tourPages = OnboardingView.tourPages(in: appBundle)
-    precondition(tourPages.count == 3)
-    for page in tourPages {
-        precondition(appBundle.url(forResource: page.imageName, withExtension: nil) != nil, "Tour artwork must ship in the app")
-    }
     for scheme in [ColorScheme.light, .dark] {
         for width: CGFloat in [420, 640] {
             try snapshot(ReleaseNotesView(version: releaseVersion, notes: currentNotes, onClose: {}),
                 scheme: scheme, width: width,
                 to: output.appendingPathComponent("release-notes-\(scheme)-\(Int(width)).png"), height: 660)
         }
-        for index in tourPages.indices {
-            try snapshot(TourSlideshowView(pages: tourPages, width: 472, initialPageIndex: index,
-                finishButtonTitle: "Set Up Permissions", onFinish: {}, onClose: {})
-                .transaction { $0.disablesAnimations = true },
-                scheme: scheme, width: 472,
-                to: output.appendingPathComponent("tour-page-\(index)-\(scheme).png"), height: 510)
-        }
         try snapshot(ZStack(alignment: .topLeading) {
             Color.secondary.opacity(0.1)
             Recording3DInsertionGhost(range: 1...4, pointsPerSecond: 100)
         }.frame(height: 36).padding(12), scheme: scheme, width: 600,
             to: output.appendingPathComponent("3d-insertion-ghost-\(scheme).png"), height: 60)
-        for step in OnboardingView.Step.allCases {
+        for step in OnboardingStep.allCases {
             for width: CGFloat in [520, 760] {
                 try snapshot(OnboardingView(step: step, resourceBundle: appBundle, isPermissionPreview: false),
                     scheme: scheme, width: width,
@@ -405,12 +398,7 @@ func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
                     height: width == 520 ? 560 : 680)
             }
         }
-        for width: CGFloat in [520, 760] {
-            try snapshot(OnboardingDemoView(demo: .recording, resourceBundle: appBundle).padding(32),
-                scheme: scheme, width: width,
-                to: output.appendingPathComponent("onboarding-recording-demo-\(scheme)-\(Int(width)).png"), height: 460)
-        }
-        try snapshot(VStack(spacing: 12) {
+        let recoveryRows = Group {
             OnboardingPermissionRow(permission: .screen, status: .notEnabled, attempted: true,
                 request: {}, openSettings: {})
             OnboardingPermissionRow(permission: .camera, status: .denied, request: {}, openSettings: {})
@@ -421,10 +409,17 @@ func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
             OnboardingPermissionRow(permission: .screen, status: .notEnabled, attempted: true,
                 errorMessage: "Couldn’t open settings. Try again, or open System Settings manually.",
                 request: {}, openSettings: {})
-        }.padding(16), scheme: scheme, width: 520,
-            to: output.appendingPathComponent("onboarding-permission-recovery-\(scheme).png"), height: 900)
+        }
+        for width: CGFloat in [520, 760] {
+            try snapshot(Form { Section { recoveryRows } }
+                .formStyle(.grouped).scrollContentBackground(.hidden)
+                .frame(maxWidth: 520).padding(.horizontal, 40)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top),
+                scheme: scheme, width: width,
+                to: output.appendingPathComponent("onboarding-permission-recovery-\(scheme)-\(Int(width)).png"), height: 760)
+        }
     }
-    print("PASS onboarding artwork copies, permission status mapping/testing guard, recovery states, bundled silent demos, and all three steps in compact/light/dark snapshots")
+    print("PASS onboarding artwork copies, permission status mapping/testing guard, recovery states, and all four steps in compact/light/dark snapshots")
     try snapshot(LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 12) {
         ForEach(GradientPreset.presets) { preset in
             VStack {
@@ -436,9 +431,21 @@ func checkEditorUI(imageURL: URL, movieURL: URL) async throws {
     for scheme in [ColorScheme.light, .dark] {
         let name = scheme == .light ? "light" : "dark"
         try snapshot(PreferencesView(selection: .general), scheme: scheme, width: 780,
-            to: output.appendingPathComponent("general-background-\(name).png"), height: 1700)
+            to: output.appendingPathComponent("general-background-\(name).png"), height: 2600)
+        do {
+            let key = AfterCaptureAction.save.storageKey(for: .screenshot)
+            let stored = UserDefaults.standard.object(forKey: key)
+            defer { UserDefaults.standard.set(stored, forKey: key) }
+            for enabled in [false, true] {
+                UserDefaults.standard.set(enabled, forKey: key)
+                try snapshot(GeneralSettingsTab(), scheme: scheme, width: 580,
+                    to: output.appendingPathComponent("general-saving-\(enabled)-\(name).png"), height: 2600)
+            }
+        }
         try snapshot(PreferencesView(selection: .sharing), scheme: scheme, width: 780,
                      to: output.appendingPathComponent("sharing-buttons-\(name).png"), height: 720)
+        try snapshot(PreferencesView(selection: .home), scheme: scheme, width: 780,
+                     to: output.appendingPathComponent("settings-home-\(name).png"), height: 900)
         try snapshot(VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
                 Button("Test Connection") {}
@@ -801,6 +808,22 @@ private func checkCameraAspectRatios(movieURL: URL) async throws {
                 to: output.appendingPathComponent("video-ratios-\(scheme)-\(Int(width)).png"), height: 800)
         }
     }
+    let customColor = AnnotationBackgroundColor.custom(from: Color(.sRGB, red: 0.2, green: 0.45, blue: 0.4))
+    var customColorSettings = AnnotationBackgroundSettings()
+    customColorSettings.style = .solid(customColor)
+    let savedBackground = model.style.background
+    model.style.background = .solid(customColor)
+    for scheme in [ColorScheme.light, .dark] {
+        for width: CGFloat in [260, 340] {
+            try snapshot(AnnotationBackgroundInspector(settings: .constant(customColorSettings),
+                wallpaperStore: .shared, onEditorAction: {}, onPickWallpaper: {}).padding(12),
+                scheme: scheme, width: width,
+                to: output.appendingPathComponent("image-custom-color-\(scheme)-\(Int(width)).png"), height: 520)
+            try snapshot(StudioInspector(model: model), scheme: scheme, width: width,
+                to: output.appendingPathComponent("video-custom-color-\(scheme)-\(Int(width)).png"), height: 800)
+        }
+    }
+    model.style.background = savedBackground
     for preset in RecordingLayoutPreset.allCases {
         model.setLayoutPreset(preset)
         for scheme in [ColorScheme.light, .dark] {
@@ -864,9 +887,59 @@ private func checkGeneralEditorDefaults(movieURL: URL) async throws {
     print("PASS General defaults for new recordings/imports, image look parity, reset, and saved project preservation")
 }
 
+/// Exercises real native dialogs without starting a capture or accessing microphone/camera.
+@MainActor
+private func checkRecordingConfirmations() {
+    let manager = ScreenRecordingManager.shared
+    let presenter = RecordingBarPresenter.shared
+    let previousState = manager.state
+    let previousAppearance = NSApp.appearance
+    defer {
+        manager.state = previousState
+        NSApp.appearance = previousAppearance
+        presenter.hide()
+    }
+    for state in [ScreenRecordingState.idle, .starting, .finishing] {
+        manager.state = state
+        presenter.confirmRecordingAction(.discardRecording)
+        presenter.confirmRecordingAction(.restartRecording)
+        precondition(NSApp.modalWindow == nil, "Inactive/settling recordings must not open a destructive confirmation")
+    }
+    for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+        NSApp.appearance = NSAppearance(named: appearance)
+        for action in [ShortcutService.Action.discardRecording, .restartRecording] {
+            manager.state = action == .discardRecording ? .recording : .paused
+            let state = manager.state
+            presenter.showRecording(displayID: nil)
+            let bar = NSApp.windows.first { $0.identifier?.rawValue == "BetterShot.RecordingBar" }!
+            var observed = false
+            let timer = Timer(timeInterval: 0.1, repeats: false) { _ in
+                MainActor.assumeIsolated {
+                    guard let alertWindow = NSApp.modalWindow else { preconditionFailure("Missing native recording confirmation") }
+                    observed = true
+                    precondition(alertWindow !== bar && alertWindow.sheetParent == nil && bar.attachedSheet == nil,
+                                 "Recording confirmations must be standalone, not sheets on the transparent bar")
+                    precondition(!bar.isOpaque && bar.backgroundColor == .clear)
+                    precondition(alertWindow.sharingType == (PreviewWindowCaptureExclusion.includesAppWindowsInCaptures ? .readOnly : .none))
+                    presenter.confirmRecordingAction(action)
+                    precondition(NSApp.modalWindow === alertWindow, "Repeated shortcuts must not nest confirmations")
+                    NSApp.stopModal(withCode: .alertFirstButtonReturn) // Cancel is the safe default.
+                }
+            }
+            RunLoop.main.add(timer, forMode: .modalPanel)
+            presenter.confirmRecordingAction(action)
+            timer.invalidate()
+            precondition(observed && manager.state == state, "Cancel must preserve recording/paused state")
+            precondition(NSApp.modalWindow == nil && bar.attachedSheet == nil)
+        }
+    }
+    print("PASS standalone native recording confirmations, cancellation, duplicate protection, capture exclusion, and both appearances")
+}
+
 /// Static layout checks need no camera/microphone access or encoded video fixture.
 @MainActor
 func checkCaptureControlsUI() throws {
+    try checkScrollCaptureStitching()
     let sources = RecordingSourceCatalog.shared
     precondition(!sources.containsSelection(.fullscreen, displayID: nil, windowID: nil))
     precondition(!sources.containsSelection(.window, displayID: nil, windowID: nil),
@@ -876,6 +949,32 @@ func checkCaptureControlsUI() throws {
     try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
     for scheme in [ColorScheme.light, .dark] {
         let name = scheme == .light ? "light" : "dark"
+        try snapshot(PreferencesView(selection: .capture), scheme: scheme, width: 780,
+                     to: output.appendingPathComponent("capture-settings-\(name).png"), height: 740)
+        if ProcessInfo.processInfo.environment["BETTERSHOT_CHECK_CAPTURE_UI"] == "1" {
+            try snapshot(MenuBarContentView(dismissPopover: {}), scheme: scheme, width: 296,
+                         to: output.appendingPathComponent("capture-menu-\(name).png"), height: 540)
+            let hudWidth = ScrollCaptureSessionView.size.width
+            let hudHeight = ScrollCaptureSessionView.size.height
+            let scrollModel = ScrollCaptureSessionModel()
+            try snapshot(ScrollCaptureSessionView(model: scrollModel,
+                stop: {}, cancel: {}), scheme: scheme, width: hudWidth,
+                to: output.appendingPathComponent("scroll-session-starting-\(name).png"), height: hudHeight)
+            scrollModel.isStarting = false
+            scrollModel.pointSize = CGSize(width: 1_512, height: 12_480)
+            try snapshot(ScrollCaptureSessionView(model: scrollModel,
+                stop: {}, cancel: {}), scheme: scheme, width: hudWidth,
+                to: output.appendingPathComponent("scroll-session-capturing-\(name).png"), height: hudHeight)
+            scrollModel.isAutoScrolling = true
+            try snapshot(ScrollCaptureSessionView(model: scrollModel,
+                stop: {}, cancel: {}), scheme: scheme, width: hudWidth,
+                to: output.appendingPathComponent("scroll-session-auto-\(name).png"), height: hudHeight)
+            scrollModel.isAutoScrolling = false
+            scrollModel.statusMessage = "Allow Accessibility in Settings, then retry Auto Scroll."
+            try snapshot(ScrollCaptureSessionView(model: scrollModel,
+                stop: {}, cancel: {}), scheme: scheme, width: hudWidth,
+                to: output.appendingPathComponent("scroll-session-permission-\(name).png"), height: hudHeight)
+        }
         try snapshot(RecordingSessionControls().studioGlass(cornerRadius: BarMetrics.cornerRadius, opacity: 0.78),
                      scheme: scheme, width: 360,
                      to: output.appendingPathComponent("recording-\(name).png"), height: 64)
@@ -886,7 +985,217 @@ func checkCaptureControlsUI() throws {
             .background(EditorChrome.workspace), scheme: scheme, width: 760,
                      to: output.appendingPathComponent("capture-\(name).png"), height: 100)
     }
-    print("PASS missing recording source rejection and capture/setup/transport light and dark layouts")
+    print("PASS scrolling capture menu entry, missing recording source rejection, and capture/setup/transport light and dark layouts")
+}
+
+/// Exercises the production strip merger with synthetic frames, without live screen capture.
+@MainActor
+private func checkScrollCaptureStitching() throws {
+    // MacShot's analyzer must respect row padding and RGB channel order.
+    func paddedFrame(changed: Bool, littleEndian: Bool, scrollbarOnly: Bool = false, padding: UInt8 = 17) -> CGImage {
+        let width = 80, height = 60, rowBytes = width * 4 + 28
+        var bytes = [UInt8](repeating: padding, count: rowBytes * height)
+        for y in 0..<height {
+            for x in 0..<width {
+                let offset = y * rowBytes + x * 4
+                let rgb: [UInt8] = changed && ((!scrollbarOnly && y >= 18) || x >= 74) ? [140, 180, 220] : [40, 80, 120]
+                let pixel = littleEndian ? [rgb[2], rgb[1], rgb[0], 255] : [255, rgb[0], rgb[1], rgb[2]]
+                bytes.replaceSubrange(offset..<offset + 4, with: pixel)
+            }
+        }
+        let order: CGBitmapInfo = littleEndian ? .byteOrder32Little : .byteOrder32Big
+        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+            bytesPerRow: rowBytes, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | order.rawValue),
+            provider: CGDataProvider(data: Data(bytes) as CFData)!, decode: nil,
+            shouldInterpolate: false, intent: .defaultIntent)!
+    }
+    let padded = paddedFrame(changed: false, littleEndian: true)
+    precondition(ScrollFrameAnalyzer.frozenTopRows(current: paddedFrame(changed: false, littleEndian: false),
+        previous: padded, rightMarginPx: 0) == 60)
+    precondition(ScrollFrameAnalyzer.frozenTopRows(current: paddedFrame(changed: true, littleEndian: false),
+        previous: padded, rightMarginPx: 6) == 18)
+    precondition(ScrollFrameAnalyzer.scrollbarWidth(current: paddedFrame(changed: true,
+        littleEndian: false, scrollbarOnly: true), previous: padded) == 6)
+    for shift: CGFloat in [.nan, .infinity, -.infinity, 60, -60] {
+        precondition(ScrollFrameAnalyzer.validatedVerticalShift(shift, frameHeight: 60) == nil)
+    }
+    let screenFrame = CGRect(x: -1512, y: -200, width: 1512, height: 982)
+    let visibleFrame = screenFrame.insetBy(dx: 0, dy: 40)
+    let panel = ScrollCaptureSessionPresenter.panelFrame(size: ScrollCaptureSessionView.size,
+        selection: screenFrame, screenFrame: screenFrame, visibleFrame: visibleFrame, topInset: 38)
+    precondition(visibleFrame.contains(panel) && panel.maxY <= screenFrame.maxY - 38,
+        "Full-height selections must keep Stop/Auto Scroll visible, including on secondary displays")
+
+    func solidFrame(width: Int, height: Int, color: CGColor) -> CGImage {
+        let context = CGContext(data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setFillColor(color)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage()!
+    }
+
+    let existing = solidFrame(width: 12, height: 6, color: CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+    let current = solidFrame(width: 12, height: 8, color: CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+    guard let merged = ScrollCaptureController.mergedImage(
+        existing: existing, currentFrame: current, offsetPx: 3, headerHeight: 2
+    ), let overwritten = ScrollCaptureController.mergedImage(
+        existing: existing, currentFrame: current, offsetPx: 3
+    ) else { preconditionFailure("Valid scroll strips should merge") }
+    precondition(merged.width == 12 && merged.height == 9 && overwritten.height == 9,
+                 "Each scroll strip should add only the newly exposed three rows")
+
+    func pixelCounts(_ image: CGImage) -> (red: Int, blue: Int) {
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        var redPixels = 0
+        var bluePixels = 0
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                if color.redComponent > 0.8 && color.blueComponent < 0.2 { redPixels += 1 }
+                if color.blueComponent > 0.8 && color.redComponent < 0.2 { bluePixels += 1 }
+            }
+        }
+        return (redPixels, bluePixels)
+    }
+    let counts = pixelCounts(merged)
+    precondition(counts.red == 12 * 3 && counts.blue == 12 * 6,
+                 "Below a pinned header the newer frame should replace the overlap so faded-in content is kept settled")
+    let overwrittenCounts = pixelCounts(overwritten)
+    precondition(overwrittenCounts.red == 12 * 1 && overwrittenCounts.blue == 12 * 8,
+                 "Without a header the newest frame replaces the overlap so pinned footers appear once")
+    guard let refreshed = ScrollCaptureController.mergedImage(
+        existing: overwritten, currentFrame: solidFrame(width: 12, height: 8,
+            color: CGColor(red: 1, green: 0, blue: 0, alpha: 1)), offsetPx: 0, headerHeight: 2
+    ), refreshed.height == 9 else { preconditionFailure("The final frame should refresh the page end in place") }
+    let refreshedCounts = pixelCounts(refreshed)
+    precondition(refreshedCounts.red == 12 * 7 && refreshedCounts.blue == 12 * 2,
+                 "A zero-offset final frame should redraw only the rows below the pinned header")
+
+    // Each row has a distinct color and text-like bars, so repeated or omitted
+    // rows at a seam cannot hide inside a solid-color fixture.
+    let width = 96
+    let viewportHeight = 80
+    let headerHeight = 10
+    let documentHeight = 180
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    func bitmap(_ height: Int) -> CGContext {
+        CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+            bytesPerRow: 0, space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    }
+    let pageContext = bitmap(documentHeight)
+    for row in 0..<documentHeight {
+        let color = CGColor(red: CGFloat((row * 37 + 17) % 256) / 255,
+            green: CGFloat((row * 71 + 31) % 256) / 255,
+            blue: CGFloat((row * 113 + 47) % 256) / 255, alpha: 1)
+        pageContext.setFillColor(color)
+        pageContext.fill(CGRect(x: 0, y: documentHeight - row - 1, width: width, height: 1))
+        pageContext.setFillColor(CGColor(gray: row.isMultiple(of: 2) ? 0.1 : 0.9, alpha: 1))
+        pageContext.fill(CGRect(x: 5 + row % 7, y: documentHeight - row - 1,
+            width: 12 + row % 29, height: 1))
+    }
+    let page = pageContext.makeImage()!
+    func frame(at row: Int) -> CGImage {
+        let content = page.cropping(to: CGRect(x: 0, y: row,
+            width: width, height: viewportHeight))!
+        let context = bitmap(viewportHeight)
+        context.draw(content, in: CGRect(x: 0, y: 0, width: width, height: viewportHeight))
+        context.setFillColor(CGColor(red: 0.12, green: 0.16, blue: 0.2, alpha: 1))
+        context.fill(CGRect(x: 0, y: viewportHeight - headerHeight,
+            width: width, height: headerHeight))
+        context.setFillColor(CGColor(gray: 0.85, alpha: 1))
+        context.fill(CGRect(x: 8, y: viewportHeight - 6, width: 37, height: 2))
+        return context.makeImage()!
+    }
+    let first = frame(at: 0)
+    let second = frame(at: 23)
+    let third = frame(at: 49)
+    // Sparse text on a dark page resembles a conversation capture: most of
+    // the viewport is unchanged background, with a stationary top bar.
+    let darkWidth = 256
+    let darkHeight = 160
+    let darkHeader = 14
+    func darkBitmap(_ height: Int) -> CGContext {
+        CGContext(data: nil, width: darkWidth, height: height, bitsPerComponent: 8,
+            bytesPerRow: 0, space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    }
+    let darkPageContext = darkBitmap(480)
+    darkPageContext.setFillColor(CGColor(red: 0.08, green: 0.08, blue: 0.09, alpha: 1))
+    darkPageContext.fill(CGRect(x: 0, y: 0, width: darkWidth, height: 480))
+    for line in 0..<38 {
+        let top = 8 + line * 12 + line % 3
+        let barColor = line.isMultiple(of: 4)
+            ? CGColor(red: 0.86, green: 0.42, blue: 0.19, alpha: 1)
+            : CGColor(gray: 0.76, alpha: 1)
+        darkPageContext.setFillColor(barColor)
+        darkPageContext.fill(CGRect(x: 12 + line % 9, y: 480 - top - 2,
+            width: 28 + (line * 17) % 150, height: 2))
+    }
+    let darkPage = darkPageContext.makeImage()!
+    func darkFrame(at row: Int) -> CGImage {
+        let context = darkBitmap(darkHeight)
+        context.draw(darkPage.cropping(to: CGRect(x: 0, y: row,
+            width: darkWidth, height: darkHeight))!,
+            in: CGRect(x: 0, y: 0, width: darkWidth, height: darkHeight))
+        context.setFillColor(CGColor(gray: 0.17, alpha: 1))
+        context.fill(CGRect(x: 0, y: darkHeight - darkHeader,
+            width: darkWidth, height: darkHeader))
+        return context.makeImage()!
+    }
+    let darkFirst = darkFrame(at: 0)
+    let darkSecond = darkFrame(at: 42)
+    precondition(ScrollCaptureController.visionScrollOffset(previous: darkFirst,
+        current: darkSecond, excludedTop: darkHeader, excludedRight: 0) == 42,
+        "MacShot's Vision registration must align sparse dark content")
+    precondition(ScrollCaptureController.visionScrollOffset(previous: darkSecond,
+        current: darkFirst, excludedTop: darkHeader, excludedRight: 0) == -42,
+        "Scrolling back must report a negative shift so it is never appended")
+
+    func plainFrame(at row: Int) -> CGImage {
+        page.cropping(to: CGRect(x: 0, y: row, width: width, height: viewportHeight))!
+    }
+    guard let plainJoined = ScrollCaptureController.mergedImage(existing: plainFrame(at: 0),
+        currentFrame: plainFrame(at: 23), offsetPx: 23),
+          let plainStitched = ScrollCaptureController.mergedImage(existing: plainJoined,
+        currentFrame: plainFrame(at: 49), offsetPx: 26),
+          let joined = ScrollCaptureController.mergedImage(existing: first,
+        currentFrame: second, offsetPx: 23, headerHeight: headerHeight),
+          let stitched = ScrollCaptureController.mergedImage(existing: joined,
+        currentFrame: third, offsetPx: 26, headerHeight: headerHeight) else {
+        preconditionFailure("Overlapping page frames should stitch")
+    }
+    let plainExpected = NSBitmapImageRep(cgImage: page.cropping(to:
+        CGRect(x: 0, y: 0, width: width, height: viewportHeight + 49))!)
+    let plainActual = NSBitmapImageRep(cgImage: plainStitched)
+    precondition(plainStitched.width == width && plainStitched.height == viewportHeight + 49)
+    for y in 0..<plainStitched.height {
+        for x in 0..<width {
+            precondition(plainActual.colorAt(x: x, y: y) == plainExpected.colorAt(x: x, y: y),
+                "Header-free stitch changed a page pixel at (\(x), \(y)); check the seams")
+        }
+    }
+    let expectedContext = bitmap(viewportHeight + 49)
+    let expectedContent = page.cropping(to: CGRect(x: 0, y: 0,
+        width: width, height: viewportHeight + 49))!
+    expectedContext.draw(expectedContent, in: CGRect(x: 0, y: 0,
+        width: width, height: viewportHeight + 49))
+    expectedContext.draw(first.cropping(to: CGRect(x: 0, y: 0,
+        width: width, height: headerHeight))!,
+        in: CGRect(x: 0, y: viewportHeight + 49 - headerHeight,
+            width: width, height: headerHeight))
+    let expected = NSBitmapImageRep(cgImage: expectedContext.makeImage()!)
+    let actual = NSBitmapImageRep(cgImage: stitched)
+    precondition(stitched.width == width && stitched.height == viewportHeight + 49)
+    for y in 0..<stitched.height {
+        for x in 0..<width {
+            precondition(actual.colorAt(x: x, y: y) == expected.colorAt(x: x, y: y),
+                "Stitch changed a page pixel at (\(x), \(y)); check the seams")
+        }
+    }
+    print("PASS scroll capture Vision alignment, header and header-free merges, and ordered stitched rows")
 }
 
 @MainActor
@@ -986,7 +1295,7 @@ private func checkLibraryWindowToolbars(items: [MediaGalleryItem]) async throws 
             ] {
                 let window = NSWindow(contentViewController: NSHostingController(rootView: root.environment(\.colorScheme, scheme)))
                 window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-                window.title = name == "settings" ? SettingsSection.general.title : MediaGalleryCategory.all.title
+                window.title = name == "settings" ? SettingsSection.home.title : MediaGalleryCategory.all.title
                 window.styleMask = [.titled, .closable, .resizable, .fullSizeContentView]
                 window.toolbarStyle = .unified
                 window.titlebarAppearsTransparent = true
@@ -998,6 +1307,8 @@ private func checkLibraryWindowToolbars(items: [MediaGalleryItem]) async throws 
                 try await Task.sleep(for: .milliseconds(100))
                 precondition(window.toolbar?.items.contains(where: { $0.label == "Toggle Sidebar" }) == true,
                              "Gallery and Settings must provide the native sidebar toggle")
+                precondition(window.toolbar?.items.filter({ $0.label.localizedCaseInsensitiveContains("sidebar") || $0.itemIdentifier == .toggleSidebar }).count == 1,
+                             "Gallery and Settings must show exactly one sidebar toggle: \(window.toolbar?.items.map(\.label) ?? [])")
                 // cacheDisplay cannot capture macOS's compositor-backed sidebar/search surfaces.
                 // Check the real window rather than mistaking white offscreen placeholders for UI.
                 if live {
@@ -1050,7 +1361,16 @@ private func checkLibraryWindowToolbars(items: [MediaGalleryItem]) async throws 
             }
         }
     }
-    print("PASS native gallery/Settings sidebar toolbars in both appearances" + (live ? ", displayed compact/wide snapshots and dark material rendering" : ""))
+    let settings = SettingsWindowController.shared
+    settings.open(section: .sharing)
+    settings.open(section: .about)
+    try await Task.sleep(for: .milliseconds(200))
+    let settingsWindows = NSApp.windows.filter { $0.delegate === settings }
+    precondition(settingsWindows.count == 1, "Reopening Settings must reuse its window")
+    precondition(settingsWindows[0].title == SettingsSection.about.title, "Reopening Settings on a section must switch pages")
+    settings.close()
+    precondition(!settings.hasOpenWindow, "Closing Settings must release its window")
+    print("PASS native gallery/Settings sidebar toolbars in both appearances, single reused Settings window" + (live ? ", displayed compact/wide snapshots and dark material rendering" : ""))
 }
 
 @MainActor
@@ -1279,6 +1599,11 @@ private func checkShortcutCustomization(defaults: UserDefaults) {
     let service = ShortcutService(defaults: defaults)
     service.restoreDefaults()
     let actions = ShortcutService.Action.allCases
+    let home = ShortcutService.Shortcut(keyCode: UInt32(kVK_Home), modifiers: UInt32(cmdKey), enabled: true)
+    precondition(home.displayString == "⌘↖")
+    precondition(home.accessibilityDescription == "Command Home")
+    let function = ShortcutService.Shortcut(keyCode: UInt32(kVK_F20), modifiers: UInt32(optionKey), enabled: true)
+    precondition(function.displayString == "⌥F20")
     precondition(Set(actions.map(\.rawValue)).count == actions.count)
     precondition(Set(actions.compactMap(\.annotationTool)) == Set(AnnotationTool.allCases))
     for action in actions where action.defaultShortcut == nil {
@@ -1288,6 +1613,18 @@ private func checkShortcutCustomization(defaults: UserDefaults) {
         let bindings = actions.filter { $0.scope == scope }.compactMap { service.effectiveShortcut(for: $0) }
         let keys = bindings.map { "\($0.keyCode):\($0.modifiers)" }
         precondition(Set(keys).count == keys.count, "Defaults must not conflict within a scope")
+    }
+    precondition(service.effectiveShortcut(for: .previousRegion) == .defaultPreviousRegion)
+    for taken in [false, true] {
+        let suiteName = "BetterShot-previous-region-" + UUID().uuidString
+        let migrationDefaults = UserDefaults(suiteName: suiteName)!
+        defer { migrationDefaults.removePersistentDomain(forName: suiteName) }
+        if taken, let data = try? JSONEncoder().encode(ShortcutService.Shortcut.defaultPreviousRegion) {
+            migrationDefaults.set(data, forKey: "bs_hotkey_\(ShortcutService.Action.window.rawValue)")
+        }
+        let migrated = ShortcutService(defaults: migrationDefaults)
+        precondition(migrated.effectiveShortcut(for: .previousRegion) == (taken ? nil : .defaultPreviousRegion),
+                     "A custom ⌘⇧1 binding on another action must keep working")
     }
     let custom = ShortcutService.Shortcut(keyCode: UInt32(kVK_ANSI_9), modifiers: UInt32(cmdKey | optionKey), enabled: true)
     precondition(service.validationError(for: custom, action: .window) == nil)
@@ -1386,7 +1723,7 @@ private func checkPreviewOverlay(imageURL: URL) async throws {
     AppPreferences.overlayCardSize = .large
     overlay.refreshSettings()
     precondition(panel.frame.width > originalWidth, "Changing Overlay settings must resize an existing overlay")
-    precondition(!CloudUploader.shared.isConfigured, "Tests must not access R2 credentials")
+    precondition(!R2CredentialStore.shared.isConfigured, "Tests must not access R2 credentials")
     overlay.share(imageURL)
     guard case .failed(_, _, true) = overlay.transferStatus(for: imageURL) else {
         preconditionFailure("An unconfigured share must offer recovery")
@@ -1404,11 +1741,15 @@ private func checkPreviewOverlay(imageURL: URL) async throws {
     precondition(overlay.items.isEmpty && overlay.transferStatus(for: imageURL) == nil)
     precondition(overlay.toastURL == nil, "Removing a preview clears its transfer toast")
     overlay.share(imageURL)
-    precondition(overlay.transferStatus(for: imageURL) == nil, "Removed cards cannot start uploads")
+    precondition(overlay.items.contains(imageURL), "Sharing a removed capture presents its card again")
+    guard case .failed(_, _, true) = overlay.transferStatus(for: imageURL) else {
+        preconditionFailure("A re-presented unconfigured share must offer recovery")
+    }
+    overlay.remove(imageURL)
 
     let id = UUID()
     let cancelledUpload = Task {
-        try await CloudUploader.shared.upload(itemID: id, fileURL: imageURL)
+        try await CloudUploader.shared.upload(itemID: id, fileURL: imageURL, named: "cancelled")
     }
     cancelledUpload.cancel()
     do {
@@ -1417,6 +1758,41 @@ private func checkPreviewOverlay(imageURL: URL) async throws {
     } catch is CancellationError { }
     precondition(R2Uploader.shared.failedItems[id] == nil && R2Uploader.shared.uploadProgress[id] == nil,
                  "Cancelled preparation must never enter the R2 uploader")
+
+    AppPreferences.overlayDismissDelay = 0.15
+    overlay.show(url: imageURL)
+    let livePanel = NSApp.windows.first { $0.identifier?.rawValue == "BetterShot.CaptureOverlay" && $0.isVisible }! as! NSPanel
+    precondition(livePanel.becomesKeyOnlyIfNeeded, "Presenting a preview must not pull focus into it")
+    let mouse = NSEvent.mouseLocation
+    livePanel.setFrameOrigin(NSPoint(x: mouse.x - livePanel.frame.width / 2, y: mouse.y - livePanel.frame.height / 2))
+    try await Task.sleep(for: .milliseconds(350))
+    precondition(overlay.items.contains(imageURL), "Live pointer over the panel pauses dismissal")
+    let activationPolicy = NSApp.activationPolicy()
+    defer { NSApp.setActivationPolicy(activationPolicy) }
+    NSApp.setActivationPolicy(.regular)
+    NSApp.activate(ignoringOtherApps: true)
+    livePanel.makeKey()
+    try await Task.sleep(for: .milliseconds(150))
+    precondition(livePanel.isKeyWindow, "Focus test requires a key preview panel")
+    livePanel.setFrameOrigin(NSPoint(x: mouse.x + 40, y: mouse.y + 40))
+    overlay.setActionFocused(true, for: imageURL)
+    try await Task.sleep(for: .milliseconds(350))
+    precondition(overlay.items.contains(imageURL), "A focused tool keeps its card available")
+    let otherWindow = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 160, height: 100),
+                               styleMask: [.titled], backing: .buffered, defer: false)
+    otherWindow.isReleasedWhenClosed = false
+    defer { otherWindow.close() }
+    otherWindow.makeKeyAndOrderFront(nil) // Deliberately leave the tool focus flag set.
+    precondition(!livePanel.isKeyWindow, "Moving keyboard focus must leave the preview panel")
+    try await Task.sleep(for: .milliseconds(350))
+    precondition(!overlay.items.contains(imageURL), "Leaving the panel resumes dismissal without a focus-exit callback")
+    precondition(FileManager.default.fileExists(atPath: imageURL.path), "Timer dismissal preserves retained files")
+    AppPreferences.overlayDismissDelay = AppPreferences.overlayDismissNever
+    overlay.show(url: imageURL)
+    try await Task.sleep(for: .milliseconds(250))
+    precondition(overlay.items.contains(imageURL), "Never disables automatic dismissal")
+    overlay.remove(imageURL)
+    print("PASS visible preview pointer pause, tool focus, stale focus recovery, and Never")
 
     AppPreferences.resetOverlaySettings()
     precondition(AppPreferences.overlayPosition == .bottomRight && AppPreferences.overlayCardSize == .small)
@@ -1476,6 +1852,18 @@ private func checkPreviewOverlay(imageURL: URL) async throws {
 
 @MainActor
 private func checkColorPickerAndToast() async throws {
+    let pasteboard = NSPasteboard.withUniqueName()
+    let oldSound = AppPreferences.playSound
+    AppPreferences.playSound = false
+    defer { pasteboard.releaseGlobally(); AppPreferences.playSound = oldSound }
+    let capture = CaptureOrchestrator.shared
+    capture.completeTextCapture("First line\nSecond line", action: .ocr, pasteboard: pasteboard)
+    precondition(pasteboard.string(forType: .string) == "First line\nSecond line")
+    capture.completeTextCapture("First line\nSecond line", action: .ocrSingleLine, pasteboard: pasteboard)
+    precondition(pasteboard.string(forType: .string) == "First line Second line")
+    capture.completeTextCapture("#FF8000", action: .colorPicker, pasteboard: pasteboard)
+    capture.completeTextCapture(" \n", action: .ocr, pasteboard: pasteboard)
+    precondition(pasteboard.string(forType: .string) == "#FF8000", "Empty OCR preserves the clipboard")
     let samples: [(NSColor, String)] = [
         (.black, "#000000"), (.white, "#FFFFFF"),
         (NSColor(srgbRed: 1, green: 0.5, blue: 0, alpha: 1), "#FF8000"),

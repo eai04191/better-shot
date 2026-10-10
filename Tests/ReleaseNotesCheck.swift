@@ -2,8 +2,10 @@ import Foundation
 
 @main struct ReleaseNotesCheck {
     static func main() throws {
-        let suite = "BetterShot-release-notes-\(UUID().uuidString)"
+        // A fixed suite, cleared first: a UUID name left one plist per run behind.
+        let suite = "BetterShotTests-release-notes"
         let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
         defer { defaults.removePersistentDomain(forName: suite) }
         let source = """
         # Changelog
@@ -38,7 +40,7 @@ import Foundation
         precondition(ReleaseNotes.pending(in: notes, current: "0.5.10", defaults: defaults).isEmpty, "Dismissed updates do not repeat")
         ReleaseNotes.markSeen("0.5.4", defaults: defaults)
         precondition(defaults.string(forKey: ReleaseNotes.seenVersionKey) == "0.5.10", "Downgrades do not reset the marker")
-        OnboardingState.resumeAtPermissions(defaults: defaults)
+        OnboardingState.save(step: 1, defaults: defaults)
         precondition(OnboardingState.shouldPresent(defaults: defaults))
         ReleaseNotes.prepareForLaunch(current: "0.5.10", defaults: defaults)
         precondition(defaults.string(forKey: ReleaseNotes.seenVersionKey) == "0.5.10")

@@ -78,7 +78,7 @@ struct RecordingStudioContent: View {
         .tint(EditorChrome.accent)
         .accentColor(EditorChrome.accent)
         .frame(minWidth: 1100, minHeight: 720)
-        .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
+        .toolbarBackground(.visible, for: .windowToolbar)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button {
@@ -97,7 +97,8 @@ struct RecordingStudioContent: View {
                 .disabled(!model.canRedo)
                 .help(ShortcutService.shared.help("Redo", for: .videoRedo))
             }
-
+        }
+        .toolbarHidingSharedBackground {
             ToolbarItemGroup(placement: .primaryAction) {
                 if model.isCroppingVideo {
                     cropActions
@@ -123,7 +124,6 @@ struct RecordingStudioContent: View {
                     .accessibilityLabel("Toggle video inspector")
                 }
             }
-            .sharedBackgroundVisibility(.hidden)
         }
         .alert("Remove this 3D shot?", isPresented: $confirms3DShotRemoval) {
             Button("Cancel", role: .cancel) { }
@@ -131,7 +131,7 @@ struct RecordingStudioContent: View {
                 if let id = model.selected3DShotID { model.remove3DShot(id: id) }
             }
         }
-        .editorFullScreenByDefault()
+        .editorFullScreenSupport()
         .navigationTitle(windowTitle)
         .onWindowChange { window in
             configureCloseGuard()
@@ -311,7 +311,15 @@ struct RecordingStudioContent: View {
             switch decision {
             case .save:
                 model.saveProject()
-                done()
+                guard model.exportState.isExporting else {
+                    done()
+                    return
+                }
+                Task {
+                    await model.waitForExport()
+                    if case .failed = model.exportState { return }
+                    done()
+                }
             case .discard:
                 Task {
                     await model.discardChanges()
@@ -412,7 +420,7 @@ struct RecordingStudioContent: View {
         if case .failed = model.shareState {
             model.retryShare()
         } else if case .failed = model.exportState {
-            model.export()
+            model.retryExport()
         }
     }
 
@@ -1326,7 +1334,8 @@ private struct StudioTimelineEditor: View {
     @State private var viewport = RecordingTimelineViewport()
     @State private var isSplitting = false
     @State private var viewportWidth: CGFloat = 1
-    @State private var scrollPosition = ScrollPosition(edge: .leading)
+    @State private var scrollPosition: Any?
+    @State private var scrollRequest = 0
     @State private var confirms3DRemoval = false
 
     private var scrollX: CGFloat { CGFloat(viewport.position) * scale.pointsPerSecond }
@@ -1515,7 +1524,7 @@ private struct StudioTimelineEditor: View {
                     .frame(height: StudioTimelineMetrics.scrollerGutter)
             }
 
-            ScrollView(.horizontal, showsIndicators: false) {
+            timelineScrollView(scale: scale) {
                 VStack(spacing: StudioTimelineMetrics.rowSpacing) {
                     StudioZoomLane(
                         model: model,
@@ -1558,16 +1567,8 @@ private struct StudioTimelineEditor: View {
                         .frame(height: StudioTimelineMetrics.scrollerGutter)
                 }
             }
-            .scrollPosition($scrollPosition)
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize)
-            .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                geometry.contentOffset.x
-            } action: { _, offset in
-                if abs(offset - scrollX) > 0.01 {
-                    viewport.setPosition(Double(offset) * scale.secondsPerPoint, duration: model.duration)
-                }
-            }
         }
         .frame(height: StudioTimelineMetrics.scrollingLanesHeight(showsMaskLane: model.showsMaskLane, showsCutLane: !cutMarkers.isEmpty, shows3DLane: !model.previewTimeline3D.shots.isEmpty))
         .mask(edgeFadeMask(scale: scale))
@@ -1645,7 +1646,44 @@ private struct StudioTimelineEditor: View {
         syncScroll()
     }
 
-    private func syncScroll() { scrollPosition.scrollTo(x: scrollX) }
+    private func syncScroll() {
+        if #available(macOS 15.0, *) {
+            scrollPositionBinding.wrappedValue.scrollTo(x: scrollX)
+        } else {
+            scrollRequest += 1
+        }
+    }
+
+    @available(macOS 15.0, *)
+    private var scrollPositionBinding: Binding<ScrollPosition> {
+        Binding { scrollPosition as? ScrollPosition ?? ScrollPosition(edge: .leading) } set: { scrollPosition = $0 }
+    }
+
+    @ViewBuilder
+    private func timelineScrollView(scale: StudioTimelineScale, @ViewBuilder content: () -> some View) -> some View {
+        let lanes = content()
+        if #available(macOS 15.0, *) {
+            ScrollView(.horizontal, showsIndicators: false) { lanes }
+                .scrollPosition(scrollPositionBinding)
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.contentOffset.x
+                } action: { _, offset in
+                    followScroll(to: offset, scale: scale)
+                }
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                lanes.background(RecordingTimelineScrollSync(targetX: scrollX, request: scrollRequest) {
+                    followScroll(to: $0, scale: scale)
+                })
+            }
+        }
+    }
+
+    private func followScroll(to offset: CGFloat, scale: StudioTimelineScale) {
+        if abs(offset - scrollX) > 0.01 {
+            viewport.setPosition(Double(offset) * scale.secondsPerPoint, duration: model.duration)
+        }
+    }
 
     private func followPlayhead(to time: TimeInterval) {
         guard model.isPlaying else { return }
@@ -2577,7 +2615,7 @@ private struct StudioZoomCueBlock: View {
                     .frame(width: 2.5, height: 12)
             }
             .contentShape(Rectangle())
-            .pointerStyle(.columnResize)
+            .hoverPointer(.columnResize)
             .onTapGesture(count: 2) { fill(edge: edge) }
             .help("Drag to resize. Double-click to extend to the next zoom or recording edge.")
             .gesture(
@@ -2963,6 +3001,7 @@ struct StudioInspector: View {
                         } else if let selectedClip = model.selectedClip {
                             InspectorSection("Selected Clip") {
                                 selectedClipControls(for: selectedClip)
+                                    .id(selectedClip.id)
                             }
                             .studioEffectCard()
                         }
@@ -3015,7 +3054,7 @@ struct StudioInspector: View {
                         }
                     }
 
-                    if selectedTab == .effects && (model.canTranscribe || model.hasSubtitles) {
+                    if selectedTab == .effects && (model.hasNarration || model.hasSubtitles) {
                         StudioEffectSection(
                             title: "Transcription",
                             systemImage: "captions.bubble",
@@ -3256,6 +3295,10 @@ struct StudioInspector: View {
                         }
                     }
                 }
+
+                AnnotationBackgroundCustomColorRow(style: model.style.background) { color in
+                    model.style.background = .solid(color)
+                }
             }
 
             if backgroundKind == .gradient {
@@ -3319,7 +3362,7 @@ struct StudioInspector: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 7) {
-                inspectorAction("Auto Zoom", systemImage: "pointer.arrow.rays") {
+                inspectorAction("Auto Zoom", systemImage: "cursorarrow.rays") {
                     model.resynthesizeZoomCues()
                 }
                 .disabled(pressCount == 0)
@@ -3458,19 +3501,25 @@ struct StudioInspector: View {
     // MARK: Selected clip
 
     private func selectedClipControls(for clip: RecordingClipSegment) -> some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+        let speed = model.clipSpeedDraft.speed(forClipID: clip.id) ?? clip.speed
+        return VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
             InspectorSlider(
                 "Speed",
                 value: Binding(
-                    get: { CGFloat(clip.speed) },
+                    get: { CGFloat(speed) },
                     set: { model.setClipSpeed(Double($0), forClipID: clip.id) }
                 ),
                 range: CGFloat(RecordingClipSegment.minimumSpeed)...CGFloat(RecordingClipSegment.maximumSpeed),
-                format: .magnification(fractionDigits: 2)
+                format: .magnification(fractionDigits: 2),
+                onEditingChanged: { editing in
+                    if editing { model.beginClipSpeedEdit() } else { model.endClipSpeedEdit() }
+                }
             )
+            // A drag cut short by the clip leaving the inspector still ends its edit.
+            .onDisappear { model.endClipSpeedEdit() }
 
-            if clip.speed != 1 {
-                Text("Video and recorded audio play at \(clip.speed.formatted(.number.precision(.fractionLength(0...2))))× speed.")
+            if speed != 1 {
+                Text("Video and recorded audio play at \(speed.formatted(.number.precision(.fractionLength(0...2))))× speed.")
                     .font(.inspectorLabel)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -3624,8 +3673,11 @@ struct StudioInspector: View {
                     inspectorAction("Transcribe Narration", systemImage: "waveform") {
                         model.transcribe()
                     }
+                    .disabled(!model.canTranscribe)
 
-                    Text("Turns your microphone narration into subtitles, transcribed on this Mac.")
+                    Text(model.canTranscribe
+                         ? "Turns your microphone narration into subtitles, transcribed on this Mac."
+                         : "Transcription requires macOS 26 or later.")
                         .font(.inspectorLabel)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

@@ -1,7 +1,5 @@
 import AppKit
-import Vision
 import CoreGraphics
-import ScreenCaptureKit
 
 @MainActor
 @Observable
@@ -46,22 +44,42 @@ final class ScreenCapture {
         }
         args.append(tempPath)
 
-        let success = try await runScreencapture(args)
+        let success = try await runScreencapture(args, output: tempPath)
         guard success, FileManager.default.fileExists(atPath: tempPath) else { return nil }
         return URL(fileURLWithPath: tempPath)
     }
 
     // MARK: - Region
 
+    /// Opens BetterShot's adjustable selector, over a frozen frame when that setting is on.
     func captureRegion() async throws -> URL? {
         guard !isCapturing else { return nil }
         isCapturing = true
         defer { isCapturing = false }
 
-        let tempPath = makeTempPath()
-        let success = try await runScreencapture(["-i", "-o", "-x", "-t", "png", tempPath])
-        guard success, FileManager.default.fileExists(atPath: tempPath) else { return nil }
-        return URL(fileURLWithPath: tempPath)
+        var frozenFrames = AppPreferences.freezeScreenDuringRegionCapture ? try await FrozenScreenCapture.capture() : [:]
+        switch await RegionSelectionOverlay().selectRegion(frozenFrames: frozenFrames) {
+        case .cancelled:
+            return nil
+        case .window:
+            frozenFrames.removeAll()
+            return try await interactiveShot(window: true, includeShadow: false)
+        case .region(let selection):
+            if !frozenFrames.isEmpty {
+                guard let frame = frozenFrames[selection.displayID], frame.pointsRect == CGDisplayBounds(selection.displayID) else {
+                    throw NSError(domain: "BetterShot.FrozenScreenCapture", code: 2, userInfo: [
+                        NSLocalizedDescriptionKey: "The selected display changed during capture. Try capturing again."
+                    ])
+                }
+                frozenFrames.removeAll()
+                let url = URL(fileURLWithPath: makeTempPath())
+                try await Task.detached(priority: .userInitiated) {
+                    try frame.writePNG(in: selection.pointsRect, to: url)
+                }.value
+                return url
+            }
+            return try await regionShot(selection.pointsRect)
+        }
     }
 
     /// Captures the remembered rectangle straight away, no selection overlay.
@@ -77,7 +95,7 @@ final class ScreenCapture {
         try? await Task.sleep(for: .milliseconds(80))
         let tempPath = makeTempPath()
         let region = RegionGeometry.screencaptureArgument(pointsRect)
-        let success = try await runScreencapture(["-R", region, "-x", "-t", "png", tempPath])
+        let success = try await runScreencapture(["-R", region, "-x", "-t", "png", tempPath], output: tempPath)
         guard success, FileManager.default.fileExists(atPath: tempPath) else { return nil }
         return URL(fileURLWithPath: tempPath)
     }
@@ -88,89 +106,30 @@ final class ScreenCapture {
         guard !isCapturing else { return nil }
         isCapturing = true
         defer { isCapturing = false }
-        let selection = WindowScreenshotPicker()
-        let picker = SCContentSharingPicker.shared
-        let previousConfiguration = picker.defaultConfiguration
-        let wasActive = picker.isActive
-        defer {
-            picker.remove(selection)
-            picker.defaultConfiguration = previousConfiguration
-            picker.isActive = wasActive
-        }
-        guard let filter = try await selection.select() else { return nil }
-        return try await windowShot(filter: filter, includeShadow: includeShadow)
+        return try await interactiveShot(window: true, includeShadow: includeShadow)
     }
 
-    func windowShot(filter: SCContentFilter, includeShadow: Bool = false) async throws -> URL {
-        let configuration = SCStreamConfiguration()
-        configuration.width = max(1, Int((filter.contentRect.width * CGFloat(filter.pointPixelScale)).rounded()))
-        configuration.height = max(1, Int((filter.contentRect.height * CGFloat(filter.pointPixelScale)).rounded()))
-        configuration.showsCursor = false
-        configuration.ignoreShadowsSingleWindow = !includeShadow
-        configuration.captureResolution = .best
-        // Capture directly in the app that owns the picker authorization. The
-        // command-line window path can fail to start its capture stream on macOS 26.
-        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
-        let url = URL(fileURLWithPath: makeTempPath())
-        guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        try data.write(to: url, options: .atomic)
-        return url
+    private func interactiveShot(window: Bool, includeShadow: Bool) async throws -> URL? {
+        let tempPath = makeTempPath()
+        var arguments = ["-i", "-x", "-t", "png"]
+        if window { arguments.append("-w") }
+        if !includeShadow { arguments.append("-o") }
+        arguments.append(tempPath)
+        let success = try await runScreencapture(arguments, output: tempPath)
+        guard success, FileManager.default.fileExists(atPath: tempPath) else { return nil }
+        return URL(fileURLWithPath: tempPath)
     }
 
     // MARK: - OCR Region
 
-    func captureAndOCR() async throws -> String? {
-        guard let url = try await captureRegion() else { return nil }
+    func captureAndOCR(onRecognizing: () -> Void = {}) async throws -> String? {
+        guard !isCapturing else { return nil }
+        isCapturing = true
+        defer { isCapturing = false }
+        guard let url = try await interactiveShot(window: false, includeShadow: false) else { return nil }
         defer { try? FileManager.default.removeItem(at: url) }
-
-        guard let image = NSImage(contentsOf: url),
-              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            return nil
-        }
-
-        return try await recognizeContent(in: cgImage)
-    }
-
-    private func recognizeContent(in image: CGImage) async throws -> String {
-        return try await withCheckedThrowingContinuation { continuation in
-            let textRequest = VNRecognizeTextRequest()
-            textRequest.recognitionLevel = .accurate
-            textRequest.usesLanguageCorrection = true
-
-            let barcodeRequest = VNDetectBarcodesRequest()
-
-            let handler = VNImageRequestHandler(cgImage: image)
-            do {
-                try handler.perform([textRequest, barcodeRequest])
-
-                var parts: [String] = []
-
-                // QR/Barcode results first
-                if let barcodeResults = barcodeRequest.results {
-                    for barcode in barcodeResults {
-                        if let payload = barcode.payloadStringValue, !payload.isEmpty {
-                            parts.append(payload)
-                        }
-                    }
-                }
-
-                // Text results
-                if let textResults = textRequest.results {
-                    let text = textResults
-                        .compactMap { $0.topCandidates(1).first?.string }
-                        .joined(separator: "\n")
-                    if !text.isEmpty {
-                        parts.append(text)
-                    }
-                }
-
-                continuation.resume(returning: parts.joined(separator: "\n"))
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
+        onRecognizing()
+        return try await ImageTextRecognizer.recognizeContent(at: url)
     }
 
     // MARK: - Sound
@@ -187,28 +146,13 @@ final class ScreenCapture {
     // MARK: - Helpers
 
     private func makeTempPath() -> String {
-        let dir = NSTemporaryDirectory()
-        return "\(dir)bettershot_\(UUID().uuidString).png"
+        ScreenshotFileNaming.scratchURL("Capture", extension: "png").path
     }
 
-    private func runScreencapture(_ arguments: [String]) async throws -> Bool {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-                process.arguments = arguments
-                let errors = Pipe()
-                process.standardError = errors
-                do {
-                    try process.run()
-                    let data = errors.fileHandleForReading.readDataToEndOfFile()
-                    process.waitUntilExit()
-                    continuation.resume(returning: try Self.validateCommandResult(
-                        status: process.terminationStatus, diagnostic: String(decoding: data, as: UTF8.self)))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+    private func runScreencapture(_ arguments: [String], output: String) async throws -> Bool {
+        switch try await ScreencaptureRunner.run(arguments, output: output) {
+        case .saved: true
+        case let .exited(status, diagnostic): try Self.validateCommandResult(status: status, diagnostic: diagnostic)
         }
     }
 
@@ -222,46 +166,4 @@ final class ScreenCapture {
         ])
     }
 
-}
-
-/// One native selection per screenshot; Escape completes without creating a file.
-@MainActor
-private final class WindowScreenshotPicker: NSObject, SCContentSharingPickerObserver {
-    private var continuation: CheckedContinuation<SCContentFilter?, Error>?
-
-    func select() async throws -> SCContentFilter? {
-        let picker = SCContentSharingPicker.shared
-        var configuration = SCContentSharingPickerConfiguration()
-        configuration.allowedPickerModes = .singleWindow
-        configuration.allowsChangingSelectedContent = false
-        configuration.excludedWindowIDs = NSApp.windows.filter { $0.sharingType == .none }.map { $0.windowNumber }
-        picker.defaultConfiguration = configuration
-        picker.add(self)
-        picker.isActive = true
-        return try await withCheckedThrowingContinuation {
-            continuation = $0
-            picker.present(using: .window)
-        }
-    }
-
-    private func finish(_ result: Result<SCContentFilter?, Error>) {
-        let pending = continuation
-        continuation = nil
-        pending?.resume(with: result)
-    }
-
-    nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
-        guard stream == nil else { return }
-        Task { @MainActor in self.finish(.success(nil)) }
-    }
-
-    nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker,
-                                         didUpdateWith filter: SCContentFilter, for stream: SCStream?) {
-        guard stream == nil else { return }
-        Task { @MainActor in self.finish(.success(filter)) }
-    }
-
-    nonisolated func contentSharingPickerStartDidFailWithError(_ error: Error) {
-        Task { @MainActor in self.finish(.failure(error)) }
-    }
 }

@@ -49,6 +49,8 @@ extension ShortcutService {
         case regionSave = 23
         case regionEdit = 24
         case regionPin = 25
+        // upstreamは26を使うが、このforkでは26が既にSnap Captureの保存済みIDのため27にする。
+        case scrollCapture = 27
         case ocr = 4
         case ocrSingleLine = 30
         case colorPicker = 5
@@ -133,6 +135,7 @@ extension ShortcutService {
             case .regionSave: "Capture Region & Save"
             case .regionEdit: "Capture Region & Annotate"
             case .regionPin: "Capture Region & Pin"
+            case .scrollCapture: "Scrolling Capture"
             case .ocr: "Capture Text"
             case .ocrSingleLine: "Capture Text without Line Breaks"
             case .colorPicker: "Pick Color"
@@ -202,7 +205,7 @@ extension ShortcutService {
         var group: Group {
             switch self {
             case .recording, .mediaGallery, .restoreLastCapture, .pinLastCapture, .openImage, .openSettings, .unpinAll, .editClipboard: .general
-            case .snapCapture, .region, .fullscreen, .window, .previousRegion, .timedRegion, .regionCopy, .regionSave, .regionEdit, .regionPin: .screenshots
+            case .snapCapture, .region, .fullscreen, .window, .previousRegion, .timedRegion, .regionCopy, .regionSave, .regionEdit, .regionPin, .scrollCapture: .screenshots
             case .ocr, .ocrSingleLine, .colorPicker: .ocr
             case .recordingOptions, .recordArea, .stopRecording, .pauseRecording, .restartRecording, .discardRecording: .recording
             case .togglePreviews, .savePreviews, .closePreviews: .preview
@@ -224,6 +227,7 @@ extension ShortcutService {
             switch self {
             case .snapCapture: .defaultSnapCapture
             case .region: .defaultRegion
+            case .previousRegion: .defaultPreviousRegion
             case .fullscreen: .defaultFullscreen
             case .ocr: .defaultOCR
             case .colorPicker: .defaultColorPicker

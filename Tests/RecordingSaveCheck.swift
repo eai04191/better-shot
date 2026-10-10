@@ -1,10 +1,18 @@
 import Foundation
 
+@MainActor
 struct RecordingSession {
     let directoryURL: URL
+    static var metadata: [URL: RecordingProjectMetadata] = [:]
     static func isSessionDirectory(_ url: URL) -> Bool { url.pathExtension == "bettershotrec" }
     func effectiveEditDocument() -> Int? { nil }
     func freshFinalURL(matching document: Int?) -> URL? { nil }
+    func loadProjectMetadata() -> RecordingProjectMetadata? { Self.metadata[directoryURL] }
+    func updateProjectMetadata(_ mutate: (inout RecordingProjectMetadata) -> Void) {
+        var metadata = Self.metadata[directoryURL] ?? RecordingProjectMetadata()
+        mutate(&metadata)
+        Self.metadata[directoryURL] = metadata
+    }
 }
 
 @MainActor
@@ -43,12 +51,20 @@ enum VideoFileActions {
         try FileManager.default.copyItem(at: source, to: destination)
         return destination
     }
+    static var replaced: [URL] = []
+    static func save(from source: URL, to destination: URL) async throws {
+        replaced.append(destination)
+        try Data(contentsOf: source).write(to: destination, options: .atomic)
+    }
 }
 
 @main
 struct RecordingSaveCheck {
     @MainActor
     static func main() async throws {
+        // Start from empty settings: a run that crashed mid-check must not hand
+        // its template or counter to the next run.
+        UserDefaults.standard.removePersistentDomain(forName: ProcessInfo.processInfo.processName)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let session = root.appendingPathComponent("Test.bettershotrec")
         try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
@@ -72,8 +88,14 @@ struct RecordingSaveCheck {
         } catch {}
         assert(VideoFileActions.calls == 1)
         RecordingSessionRenderer.shouldFail = false
-        _ = try await RecordingDeliverable.saveToDefaultLocation(for: raw)
-        assert(VideoFileActions.calls == 2)
+        try Data("stale".utf8).write(to: first)
+        let resaved = try await RecordingDeliverable.saveToDefaultLocation(for: raw)
+        assert(resaved == first && VideoFileActions.calls == 1 && VideoFileActions.replaced == [first],
+               "saving a recording again replaces the file it was saved to instead of adding a copy")
+        assert((try? Data(contentsOf: first)) == Data("flattened".utf8))
+        try FileManager.default.removeItem(at: first)
+        let afterMove = try await RecordingDeliverable.saveToDefaultLocation(for: raw)
+        assert(afterMove != first && VideoFileActions.calls == 2, "a saved file that was moved away is written again as a new file")
         let standalone = root.appendingPathComponent("standalone.mp4")
         try Data("standalone".utf8).write(to: standalone)
         let copied = try await RecordingDeliverable.saveToDefaultLocation(for: standalone)
@@ -84,6 +106,38 @@ struct RecordingSaveCheck {
         assert(suggested?.hasPrefix("BetterShot_") == true, "expected a template name, got \(suggested ?? "nil")")
         assert(suggested?.hasSuffix(".mp4") == true, "the deliverable's container must survive, got \(suggested ?? "nil")")
         assert(suggested?.contains("Test") == false, "the package name must not leak into the save folder")
-        print("RecordingSaveCheck: flattened output, concurrent saves, failure retry, template naming, and source preservation verified")
+
+        // A recording is named once. Saving it again, even after the template
+        // changes, keeps that name and spends no further number.
+        let defaults = UserDefaults.standard
+        defaults.set("rec-{counter:3}", forKey: ScreenshotFileNaming.templateKey)
+        defaults.removeObject(forKey: ScreenshotFileNaming.counterKey)
+        defer {
+            defaults.removeObject(forKey: ScreenshotFileNaming.templateKey)
+            defaults.removeObject(forKey: ScreenshotFileNaming.counterKey)
+        }
+        let named = root.appendingPathComponent("Named.bettershotrec")
+        try FileManager.default.createDirectory(at: named, withIntermediateDirectories: true)
+        let namedRaw = named.appendingPathComponent("screen.mov")
+        try Data("raw".utf8).write(to: namedRaw)
+        try Data("flattened".utf8).write(to: named.appendingPathComponent("final.mp4"))
+        _ = try await RecordingDeliverable.saveToDefaultLocation(for: namedRaw)
+        let firstName = VideoFileActions.lastSuggestedFileName
+        assert(firstName == "rec-001.mp4", "a recording takes its name from the template, got \(firstName ?? "nil")")
+        defaults.set("later-{counter}", forKey: ScreenshotFileNaming.templateKey)
+        try FileManager.default.removeItem(atPath: RecordingDeliverable.session(for: namedRaw)!.loadProjectMetadata()!.exportPath!)
+        _ = try await RecordingDeliverable.saveToDefaultLocation(for: namedRaw)
+        assert(VideoFileActions.lastSuggestedFileName == firstName,
+               "saving again keeps the recording's name, got \(VideoFileActions.lastSuggestedFileName ?? "nil")")
+        assert(ScreenshotFileNaming.counter() == 2, "one recording spends one number, counter is \(ScreenshotFileNaming.counter())")
+
+        // Share, drag-out, and the tooltip use the name without an extension;
+        // a dot inside the name is part of it, not an extension.
+        defaults.set("launch v2.1", forKey: ScreenshotFileNaming.templateKey)
+        let dotted = RecordingSession(directoryURL: root.appendingPathComponent("Dotted.bettershotrec"))
+        assert(RecordingDeliverable.name(for: dotted) == "launch v2.1",
+               "a dotted name must survive, got \(RecordingDeliverable.name(for: dotted))")
+        assert(RecordingDeliverable.fileName(for: dotted, extension: "mov") == "launch v2.1.mov")
+        print("RecordingSaveCheck: flattened output, concurrent saves, failure retry, in-place resave, template naming, one name per recording, and source preservation verified")
     }
 }

@@ -2,7 +2,7 @@
 //  RecordingPickerBar.swift
 //  BetterShot
 //
-//  Shared screenshot controls and native recording setup for the bar and notch.
+//  Shared screenshot controls and native recording setup for the capture bar.
 //  The panel, chrome, and recording handoff live in RecordingBarPresenter.
 
 import AppKit
@@ -40,6 +40,7 @@ struct RecordingPickerControls: View {
         (.screenshotRegion, .region, "Area", "viewfinder"),
         (.screenshotFullscreen, .fullscreen, "Screen", "desktopcomputer"),
         (.screenshotWindow, .window, "Window", "macwindow"),
+        (.screenshotScroll, .scrollCapture, "Scroll", "rectangle.expand.vertical"),
         (.ocr, .ocr, "Text", "doc.text.viewfinder"),
         (.colorPicker, .colorPicker, "Color", "eyedropper"),
     ]
@@ -53,9 +54,10 @@ struct RecordingPickerControls: View {
     var body: some View {
         HStack(spacing: 4) {
             ForEach(Array(Self.screenshotActions.enumerated()), id: \.element.0) { index, item in
-                if index == 3 { BarDivider() }
                 let (id, action, caption, icon) = item
-                let title = ShortcutService.shared.help(action == .ocr ? "Copy text from screen" : caption, for: action)
+                if action == .ocr { BarDivider() }
+                let title = ShortcutService.shared.help(action == .ocr ? "Copy text from screen"
+                    : action == .scrollCapture ? "Scrolling Capture" : caption, for: action)
                 BarActionButton(id: id, title: title, systemImage: icon, caption: caption) {
                     capture(action)
                 }
@@ -120,7 +122,7 @@ struct RecordingPickerControls: View {
     }
 }
 
-/// The compact 0.5.4 recording setup shared by the capture bar and notch.
+/// The compact 0.5.4 recording setup in the capture bar.
 struct RecordingOptionsView: View {
     @State private var sources = RecordingSourceCatalog.shared
     @AppStorage(BetterShotPreferences.recordingCameraDeviceIDKey) private var cameraID = ""
@@ -172,7 +174,7 @@ struct RecordingOptionsView: View {
             }
             inputToggle(id: .teleprompter, caption: "Script",
                 title: teleprompterEnabled ? "Teleprompter on" : "Teleprompter off",
-                isOn: teleprompterEnabled, onIcon: "text.pad.header", offIcon: "text.pad.header",
+                isOn: teleprompterEnabled, onIcon: "doc.plaintext", offIcon: "doc.plaintext",
                 accessibility: teleprompterEnabled
                     ? "Teleprompter on - click to edit the script"
                     : "Teleprompter off - click to write a script") {
@@ -252,12 +254,18 @@ struct RecordingOptionsView: View {
         return "Camera on - \(camera.localizedName), right-click to switch"
     }
 
+    private var microphoneOn: Bool {
+        ScreenRecordingCaptureOptions.supportsMicrophone && !microphoneID.isEmpty
+    }
+
     private var microphoneTooltip: String {
+        guard ScreenRecordingCaptureOptions.supportsMicrophone else { return "Microphone requires macOS 15 or later" }
         guard !microphoneID.isEmpty else { return "Microphone off" }
         return RecordingDeviceCatalog.microphone(withID: microphoneID) == nil ? "Microphone unavailable" : "Microphone on"
     }
 
     private var microphoneAccessibilityLabel: String {
+        guard ScreenRecordingCaptureOptions.supportsMicrophone else { return "Microphone requires macOS 15 or later" }
         guard !microphoneID.isEmpty else { return "Microphone off - click to choose an input" }
         guard let microphone = RecordingDeviceCatalog.microphone(withID: microphoneID) else {
             return "Microphone unavailable - choose another input"
@@ -294,11 +302,12 @@ struct RecordingOptionsView: View {
             }
         } label: {
             BarActionLabel(id: .microphone, title: microphoneTooltip,
-                systemImage: microphoneID.isEmpty ? "mic.slash" : "mic.fill",
-                tint: microphoneID.isEmpty ? BarMetrics.inactiveTint : BarMetrics.activeTint,
+                systemImage: microphoneOn ? "mic.fill" : "mic.slash",
+                tint: microphoneOn ? BarMetrics.activeTint : BarMetrics.inactiveTint,
                 caption: "Mic")
         }
         .menuStyle(.button).buttonStyle(BarButtonStyle()).menuIndicator(.hidden)
+        .disabled(!ScreenRecordingCaptureOptions.supportsMicrophone)
         .accessibilityLabel(microphoneAccessibilityLabel)
     }
 

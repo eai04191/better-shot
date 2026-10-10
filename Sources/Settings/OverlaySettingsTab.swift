@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct OverlaySettingsTab: View {
-    @AppStorage(AppPreferences.presentationModeKey) private var mode = CapturePresentationMode.normal
     var resourceBundle: Bundle = .main
     @AppStorage("bs_overlayPosition") private var position = OverlayPosition.bottomRight.rawValue
     @AppStorage("bs_overlayCardSize") private var size = OverlayCardSize.small.rawValue
@@ -14,9 +13,9 @@ struct OverlaySettingsTab: View {
     private var layout: OverlayToolLayout { OverlayToolLayout(data: layoutData) }
 
     var body: some View {
-        Form {
-            if mode == .normal {
-                Section {
+        SettingsPage {
+            SettingsGroup("Quick Setup") {
+                SettingRow("Layout") {
                     Picker("Layout preset", selection: Binding(
                         get: { layout.preset },
                         set: { if let preset = $0.layout { layoutData = preset.data } }
@@ -26,40 +25,51 @@ struct OverlaySettingsTab: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                SettingsDivider()
+                SettingRow("Screen position") {
                     Picker("Screen position", selection: $position) {
                         Text("Bottom Right").tag(OverlayPosition.bottomRight.rawValue)
                         Text("Bottom Left").tag(OverlayPosition.bottomLeft.rawValue)
                     }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                SettingsDivider()
+                SettingRow("Card size") {
                     Picker("Card size", selection: $size) {
                         ForEach(OverlayCardSize.allCases) { size in
                             Text(size.label).tag(size.rawValue)
                         }
                     }
                     .pickerStyle(.segmented)
-                } header: {
-                    Text("Quick Setup")
-                } footer: {
-                    Text("Standard keeps every action. Sharing puts cloud sharing in the center. Minimal keeps Copy, Save, and Dismiss; click the image to edit.")
+                    .labelsHidden()
+                    .fixedSize()
                 }
+            } footer: {
+                Text("Standard keeps every action. Sharing puts cloud sharing in the center. Minimal keeps Copy, Save, and Dismiss; click the image to edit.")
+            }
 
-                Section {
-                    VStack(spacing: 12) {
-                        OverlayLayoutEditor(layout: Binding(
-                            get: { layout }, set: { layoutData = $0.data }
-                        ), resourceBundle: resourceBundle)
-                        Text("Click a position to choose its tool")
-                            .font(.callout).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                } header: {
-                    Text("Tool Positions")
-                } footer: {
-                    Text("Move Pin, Copy, Save, Edit, Cloud Share, or Dismiss to any of the six positions. Choosing a tool already on the card swaps positions. Choose Empty to hide a tool. Dismiss always stays available.")
+            SettingsGroup("Tool Positions") {
+                VStack(spacing: 12) {
+                    OverlayLayoutEditor(layout: Binding(
+                        get: { layout }, set: { layoutData = $0.data }
+                    ), resourceBundle: resourceBundle)
+                    Text("Click a position to choose its tool")
+                        .font(.callout).foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+            } footer: {
+                Text("Move Pin, Copy, Save, Edit, Cloud Share, or Dismiss to any of the six positions. Choosing a tool already on the card swaps positions. Choose Empty to hide a tool. Dismiss always stays available.")
+            }
 
-                Section {
-                    Toggle("Always show actions", isOn: $alwaysShowActions)
+            SettingsGroup("Behavior") {
+                SettingToggle("Always show actions", caption: "Otherwise actions appear on hover or keyboard focus.", isOn: $alwaysShowActions)
+                SettingsDivider()
+                VStack(spacing: 10) {
                     InspectorSlider("Edge Margin", value: Binding(
                         get: { CGFloat(margin) }, set: { margin = (Double($0) / 4).rounded() * 4 }
                     ), range: CGFloat(AppPreferences.overlayEdgeMarginRange.lowerBound)...CGFloat(AppPreferences.overlayEdgeMarginRange.upperBound),
@@ -68,26 +78,16 @@ struct OverlaySettingsTab: View {
                         get: { CGFloat(delay) }, set: { delay = Double($0.rounded()) }
                     ), range: CGFloat(AppPreferences.overlayDismissRange.lowerBound)...CGFloat(AppPreferences.overlayDismissRange.upperBound),
                        format: .seconds(never: CGFloat(AppPreferences.overlayDismissNever)))
-                } header: {
-                    Text("Advanced")
-                } footer: {
-                    Text("Actions otherwise appear on hover or keyboard focus. Choose Never to keep previews visible. Unsaved captures, sharing progress, errors, and finished links stay available until you act on them. Changes apply immediately.")
                 }
+                .settingsRowPadding()
+            } footer: {
+                Text("Choose Never to keep previews visible. Unsaved captures, sharing progress, errors, and finished links stay available until you act on them. Changes apply immediately.")
+            }
 
-                Section {
-                    Button("Restore Overlay Defaults…", role: .destructive) { confirmingReset = true }
-                } footer: {
-                    Text("Resets only the overlay. Your captures, cloud links, and other settings are kept.")
-                }
-            } else {
-                Section("Notch Mode") {
-                    Text("Capture previews and quick editing appear at the top of your display. Capture and recording tools remain in their floating bars. Choose Normal Mode in General > Capture Mode to customize floating preview cards here.")
-                        .foregroundStyle(.secondary)
-                }
+            SettingsResetRow(caption: "Resets only the overlay. Your captures, cloud links, and other settings are kept.") {
+                confirmingReset = true
             }
         }
-        .formStyle(.grouped)
-        .scrollIndicators(.hidden)
         .onChange(of: position) { PreviewOverlay.shared.refreshSettings() }
         .onChange(of: size) { PreviewOverlay.shared.refreshSettings() }
         .onChange(of: margin) { PreviewOverlay.shared.refreshSettings() }
@@ -125,7 +125,7 @@ struct OverlayLayoutEditor: View {
                     if let tool = layout.assignments[slot] {
                         OverlayToolLabel(tool: tool, slot: slot, scale: OverlayCardSize.large.controlScale)
                     } else {
-                        Image(systemName: "plus.circle.dashed")
+                        Image(systemName: "plus.circle")
                             .font(.system(size: 24)).foregroundStyle(.white)
                             .frame(width: 33, height: 33)
                     }

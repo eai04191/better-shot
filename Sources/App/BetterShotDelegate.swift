@@ -19,8 +19,6 @@ final class BetterShotDelegate: NSObject, NSApplicationDelegate {
         DeckStaging.purge()
         AppPreferences.migrateEditorPreferences()
         AppPreferences.applyAppearance()
-        NotchShelfStore.shared.refreshMonitoring()
-        NotchVoiceCapture.shared.refreshGesture()
         AppActivationPolicy.applyVisibility()
         RecordingRecoveryCoordinator.recoverInterruptedRecordings()
         do {
@@ -73,6 +71,8 @@ final class BetterShotDelegate: NSObject, NSApplicationDelegate {
                     await CaptureOrchestrator.shared.performCapture(.fullscreen, on: screen)
                 case .window:
                     await CaptureOrchestrator.shared.performCapture(.window, on: screen)
+                case .scrollCapture:
+                    await CaptureOrchestrator.shared.performCapture(.scrollCapture, on: screen)
                 case .ocr:
                     await CaptureOrchestrator.shared.performCapture(.ocr, on: screen)
                 case .colorPicker:
@@ -94,8 +94,6 @@ final class BetterShotDelegate: NSObject, NSApplicationDelegate {
     /// Quitting mid-recording finishes and saves the recording first, and
     /// Studio's debounced autosave is flushed so no edit is lost.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if let panel = NotchQuickEditor.shared.panel, !NotchQuickEditor.shared.windowShouldClose(panel) { return .terminateCancel }
-        NotchQuickEditor.shared.discardVoice()
         StudioProjectRegistry.shared.flushDrafts()
         guard ScreenRecordingManager.shared.isActive else { return .terminateNow }
 

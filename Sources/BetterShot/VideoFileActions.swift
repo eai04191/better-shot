@@ -98,17 +98,16 @@ enum VideoFileActions {
 
     @discardableResult
     static func saveToDefaultLocation(from url: URL, suggestedFileName: String? = nil) async throws -> URL {
-        let destinationDirectory = BetterShotPreferences.exportDirectory
-        try FileManager.default.createDirectory(
-            at: destinationDirectory,
-            withIntermediateDirectories: true
-        )
-
-        let destinationURL = uniqueDestinationURL(
-            for: suggestedFileName ?? exportFileName(for: url),
-            in: destinationDirectory
-        )
-        try await save(from: url, to: destinationURL)
+        let fileName = suggestedFileName ?? exportFileName(for: url)
+        let stagingURL = try ScreenshotFileActions.exportDestination(
+            named: ".BetterShot-\(UUID().uuidString).\(URL(fileURLWithPath: fileName).pathExtension)")
+        defer { try? FileManager.default.removeItem(at: stagingURL) }
+        try await save(from: url, to: stagingURL)
+        // Remuxing suspends. Choose the free name afterward, so concurrent
+        // saves with the same template cannot overwrite each other's output.
+        let destinationURL = ScreenshotFileNaming.uniqueURL(
+            for: fileName, in: stagingURL.deletingLastPathComponent())
+        try FileManager.default.moveItem(at: stagingURL, to: destinationURL)
         return destinationURL
     }
 
@@ -118,16 +117,22 @@ enum VideoFileActions {
     /// reject - the remux is what makes the rename honest. Matching containers
     /// take the copy path, which on APFS is a clone rather than a byte copy.
     static func save(from sourceURL: URL, to destinationURL: URL) async throws {
+        let stagingURL = destinationURL.deletingLastPathComponent()
+            .appendingPathComponent(".BetterShot-\(UUID().uuidString)")
+            .appendingPathExtension(destinationURL.pathExtension)
+        defer { try? FileManager.default.removeItem(at: stagingURL) }
+
+        if let target = remuxTarget(from: sourceURL, to: destinationURL) {
+            try await VideoContainerRemuxer.remux(from: sourceURL, to: stagingURL, as: target)
+        } else {
+            try FileManager.default.copyItem(at: sourceURL, to: stagingURL)
+        }
+        try Task.checkCancellation()
         if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try FileManager.default.removeItem(at: destinationURL)
+            _ = try FileManager.default.replaceItemAt(destinationURL, withItemAt: stagingURL)
+        } else {
+            try FileManager.default.moveItem(at: stagingURL, to: destinationURL)
         }
-
-        guard let target = remuxTarget(from: sourceURL, to: destinationURL) else {
-            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-            return
-        }
-
-        try await VideoContainerRemuxer.remux(from: sourceURL, to: destinationURL, as: target)
     }
 
     /// The container to rewrite into, or nil when a plain copy is correct.
@@ -146,36 +151,7 @@ enum VideoFileActions {
         for sourceURL: URL,
         container: VideoExportContainer = .default
     ) -> String {
-        sourceURL
-            .deletingPathExtension()
-            .appendingPathExtension(container.fileExtension)
-            .lastPathComponent
-    }
-
-    static func uniqueDestinationURL(for fileName: String, in directory: URL) -> URL {
-        let originalURL = directory.appendingPathComponent(fileName)
-
-        guard FileManager.default.fileExists(atPath: originalURL.path) else {
-            return originalURL
-        }
-
-        let baseName = originalURL.deletingPathExtension().lastPathComponent
-        let pathExtension = originalURL.pathExtension
-
-        for index in 1...10_000 {
-            let numberedName = "\(baseName) \(index)"
-            let candidateURL = directory
-                .appendingPathComponent(numberedName)
-                .appendingPathExtension(pathExtension)
-
-            if !FileManager.default.fileExists(atPath: candidateURL.path) {
-                return candidateURL
-            }
-        }
-
-        return directory
-            .appendingPathComponent("\(baseName) \(UUID().uuidString)")
-            .appendingPathExtension(pathExtension)
+        ScreenshotFileNaming.fileName(of: sourceURL, extension: container.fileExtension)
     }
 }
 

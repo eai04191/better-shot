@@ -34,7 +34,7 @@ final class RecordingBarPresenter {
     /// tells the hosting view which part of itself is real and satellite
     /// windows where to anchor.
     var showsRecordingOptions = false
-    var recordingConfirmation: ShortcutService.Action?
+    @ObservationIgnored private var isConfirmingRecordingAction = false
 
     var barFrameInPanel: CGRect = .zero
 
@@ -63,14 +63,13 @@ final class RecordingBarPresenter {
         showsRecordingOptions = recordingOptions
         self.displayID = displayID ?? ActiveDisplayResolver.activeDisplayID(preferPointer: false)
         refreshPresentation()
-        // The picker is driven from the keyboard too (Esc, A for the last
-        // region), and key events only reach the panel while BetterShot is
-        // the active app. Focus is handed back when the picker leaves.
+        // The picker is driven from the keyboard too (Esc), and key events
+        // only reach the panel while BetterShot is the active app. Focus is
+        // handed back when the picker leaves.
         guard activate else { return }
         if !NSApp.isActive { previousApp = NSWorkspace.shared.frontmostApplication }
         NSApp.activate(ignoringOtherApps: true)
         panel?.makeKey()
-        LastRegionGhostPresenter.shared.show()
         warmCameraPreviewIfEnabled()
     }
 
@@ -82,24 +81,39 @@ final class RecordingBarPresenter {
         await CameraRecordingManager.shared.stopPreview()
     }
 
-    /// The remembered region, captured without going through the selection
-    /// overlay. The ghost on screen is what the user is confirming.
-    func captureLastRegion() {
-        guard mode == .picker, AppPreferences.lastRegionRect != nil else { return }
-        let screen = ActiveDisplayResolver.activeScreen(preferPointer: true)
-        hide()
-        Task {
-            await CameraRecordingManager.shared.stopPreview()
-            await CaptureOrchestrator.shared.captureLastRegion(on: screen)
-        }
-    }
-
     private func restoreFocus() {
         previousApp?.activate()
         previousApp = nil
     }
 
     // MARK: Recording
+
+    func confirmRecordingAction(_ action: ShortcutService.Action) {
+        let manager = ScreenRecordingManager.shared
+        guard action == .restartRecording || action == .discardRecording,
+              manager.state == .recording || manager.state == .paused,
+              !isConfirmingRecordingAction else { return }
+        isConfirmingRecordingAction = true
+        defer { isConfirmingRecordingAction = false }
+
+        let restarting = action == .restartRecording
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = restarting ? "Start a new recording?" : "Discard this recording?"
+        alert.informativeText = restarting
+            ? "This recording will be discarded and recording will start again."
+            : "This recording will be deleted without saving."
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: restarting ? "Start Over" : "Discard").hasDestructiveAction = true
+        PreviewWindowCaptureExclusion.shared.register(window: alert.window)
+        NSApp.activate(ignoringOtherApps: true)
+        // A sheet makes the transparent recording panel's full hosting area visible.
+        // Present independently so the bar never becomes an alert backdrop.
+        guard alert.runModal() == .alertSecondButtonReturn,
+              manager.state == .recording || manager.state == .paused else { return }
+        if restarting { manager.restartRecording() }
+        else { manager.deleteRecording() }
+    }
 
     /// Called once capture is actually starting. If the bar is already up on
     /// the recording's display it morphs in place; otherwise it has to move,
@@ -110,7 +124,6 @@ final class RecordingBarPresenter {
         let panel = panel ?? makePanel()
         PreviewWindowCaptureExclusion.shared.register(window: panel)
         TeleprompterComposerPresenter.shared.hide()
-        LastRegionGhostPresenter.shared.hide()
         restoreFocus()
 
         let isMorphing = panel.isVisible && isPositioned(panel, onDisplayID: displayID)
@@ -132,7 +145,6 @@ final class RecordingBarPresenter {
         // bar hides has to be ended by hand - it holds the pointing hand.
         BarControlHoverView.endActiveHover()
         panel?.orderOut(nil)
-        LastRegionGhostPresenter.shared.hide()
         // The composer only makes sense floating above the bar.
         TeleprompterComposerPresenter.shared.hide()
         // Next appearance should always start as the picker, and without
@@ -283,16 +295,6 @@ private final class RecordingBarPanel: NSPanel {
         false
     }
 
-    override func keyDown(with event: NSEvent) {
-        guard RecordingBarPresenter.shared.mode == .picker,
-              event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
-              event.charactersIgnoringModifiers?.lowercased() == "a" else {
-            super.keyDown(with: event)
-            return
-        }
-        RecordingBarPresenter.shared.captureLastRegion()
-    }
-
     override func cancelOperation(_ sender: Any?) {
         // Escape backs out of picking a source; it must not abandon a
         // recording that's already running.
@@ -302,7 +304,7 @@ private final class RecordingBarPanel: NSPanel {
     }
 }
 
-private final class RecordingBarHostingView<Content: View>: NSHostingView<Content> {
+private final class RecordingBarHostingView: NSHostingView<RecordingBarView> {
     override var isOpaque: Bool {
         false
     }

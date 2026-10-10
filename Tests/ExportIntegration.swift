@@ -27,6 +27,11 @@ struct ExportIntegration {
         setbuf(stdout, nil)
         precondition(ProcessInfo.processInfo.environment["BETTERSHOT_TESTING"] == "1",
                      "Run through Tests/run-exports.sh to keep the real Keychain isolated")
+        // Start from empty settings: a run that crashed mid-check must not hand
+        // its template, counter, or deleted save folder to the next run.
+        UserDefaults.standard.removePersistentDomain(forName: ProcessInfo.processInfo.processName)
+        precondition(!AppPreferences.saveDirectory.hasPrefix(NSHomeDirectory() + "/Desktop"),
+                     "Tests must never default to the real Desktop")
         precondition(R2CredentialStore.shared.keychainAccess == .empty)
         if ProcessInfo.processInfo.environment["BETTERSHOT_CHECK_SNAP_ONLY"] == "1" {
             try await checkSnapCapture()
@@ -62,27 +67,6 @@ struct ExportIntegration {
         context.setFillColor(CGColor(red: 0.1, green: 0.2, blue: 0.8, alpha: 1))
         context.fill(CGRect(x: 960, y: 0, width: 960, height: 1080))
         let image = context.makeImage()!
-        if ProcessInfo.processInfo.environment["BETTERSHOT_CHECK_LOCAL_SHELF"] == "1" {
-            let png = directory.appendingPathComponent("shelf-fixture.png")
-            try NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])!.write(to: png)
-            try await checkLocalShelfFeatures(imageURL: png, directory: directory,
-                output: URL(fileURLWithPath: ".build/editor-snapshots"))
-            if let audio = ProcessInfo.processInfo.environment["BETTERSHOT_SPEECH_FIXTURE"] {
-                let transcript = try await RecordingTranscriptionService.transcribeAudio(at: URL(fileURLWithPath: audio))
-                let text = transcript.words.map(\.text).joined().lowercased()
-                precondition(text.contains("button") && text.contains("smaller"), "Unexpected local transcript: \(text)")
-                print("PASS on-device voice fixture transcription")
-            }
-            return
-        }
-        if ProcessInfo.processInfo.environment["BETTERSHOT_CHECK_NOTCH"] == "1" {
-            let png = directory.appendingPathComponent("notch-fixture.png")
-            try NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])!.write(to: png)
-            let movie = directory.appendingPathComponent("notch-fixture.mov")
-            try await makeMovie(at: movie, image: image)
-            try await checkNotchPresentation(imageURL: png, movieURL: movie)
-            return
-        }
         if ProcessInfo.processInfo.environment["BETTERSHOT_BENCHMARK_IMAGES"] == "1" {
             try benchmarkImageExports(image: image, directory: directory)
             return
@@ -207,6 +191,7 @@ struct ExportIntegration {
         let defaults = UserDefaults.standard
         let preferenceKeys = [
             "bs_openEditorAfterCapture", AppPreferences.openEditorAfterRecordingKey, "bs_playSound",
+            AppPreferences.editorOpensFullScreenKey,
         ]
         let previousPreferences = preferenceKeys.map { defaults.object(forKey: $0) }
         defer {
@@ -223,7 +208,9 @@ struct ExportIntegration {
             AppPreferences.openEditorAfterRecording && !AppPreferences.openEditorAfterCapture)
         defaults.set(false, forKey: "bs_playSound")
         precondition(!BetterShotPreferences.playSounds)
-        print("PASS preference migration, independent editors, shared sound setting")
+        defaults.removeObject(forKey: AppPreferences.editorOpensFullScreenKey)
+        precondition(!AppPreferences.editorOpensFullScreen, "Editors open windowed unless full screen is opted in")
+        print("PASS preference migration, independent editors, shared sound setting, windowed editors by default")
 
         let movie = directory.appendingPathComponent("source.mov")
         try await makeMovie(at: movie, image: image)
@@ -246,7 +233,81 @@ struct ExportIntegration {
         try await checkVideoExports(movie: movie, directory: directory)
     }
 
+    static func checkZoomCamera() {
+        let clips = RecordingClipTimeline.full(sourceDuration: 8)
+        func travelCenter(_ frame: ViewportFrame) -> CGPoint {
+            let halfExtent = 1 / (2 * frame.magnification)
+            return CGPoint(x: (frame.anchor.x - halfExtent) / (1 - 2 * halfExtent),
+                           y: (frame.anchor.y - halfExtent) / (1 - 2 * halfExtent))
+        }
+        func samples(_ timeline: ViewportTimeline) -> [ViewportFrame] {
+            stride(from: 0.0, through: 8, by: 1.0 / 120).map { timeline.frame(at: $0) }
+        }
+        let empty = ViewportTimeline.build(cues: [], capture: PointerCaptureFile(), clipTimeline: clips)
+        precondition(samples(empty).allSatisfy { $0 == .identity }, "No cues must never zoom")
+
+        let pinned = ViewportTimeline.build(cues: [
+            ZoomCue(start: 1, end: 3, zoom: 2, anchorMode: .pinnedAnchor, pinnedPoint: CGPoint(x: 0.7, y: 0.35))
+        ], capture: PointerCaptureFile(), clipTimeline: clips)
+        let aimed = samples(pinned).filter { $0.magnification > 1.05 }
+        precondition(aimed.allSatisfy {
+            abs(travelCenter($0).x - 0.9) < 0.000_1 && abs(travelCenter($0).y - 0.2) < 0.000_1
+        }, "Zoom-in must launch pre-aimed and zoom-out must hold the last framing")
+        let settled = pinned.frame(at: 2.9)
+        precondition(abs(settled.magnification - 2) < 0.02
+            && abs(settled.anchor.x - 0.7) < 0.01 && abs(settled.anchor.y - 0.35) < 0.01)
+        precondition(abs(pinned.frame(at: 6).magnification - 1) < 0.01, "Zoom-out must return to identity")
+
+        let jitter = (0..<100).map { index in
+            PointerTravelSample(time: 0.5 + Double(index) * 0.02,
+                                x: 0.3 + (index.isMultiple(of: 2) ? 0.04 : -0.04), y: 0.6)
+        }
+        let corner = (0..<100).map { index in
+            PointerTravelSample(time: 2.6 + Double(index) * 0.02,
+                                x: 0.85 + (index.isMultiple(of: 2) ? 0.02 : -0.02), y: 0.2)
+        }
+        let capture = PointerCaptureFile(travel: jitter + corner,
+            presses: [PointerPressEvent(time: 1, x: 0.3, y: 0.6, button: 0, phase: .down)])
+        let followCues = [ZoomCue(start: 0.5, end: 5, zoom: 2)]
+        let follow = ViewportTimeline.build(cues: followCues, capture: capture, clipTimeline: clips)
+        let steady = stride(from: 2.0, through: 2.5, by: 1.0 / 120).map { follow.frame(at: $0).anchor }
+        precondition(zip(steady, steady.dropFirst()).allSatisfy {
+            abs($0.x - $1.x) < 0.000_1 && abs($0.y - $1.y) < 0.000_1
+        }, "Pointer jitter inside the dead zone must not move the Auto camera")
+        precondition(follow.frame(at: 4.8).anchor.x > 0.65, "Hovering into a corner must re-aim without a click")
+
+        let instant = ViewportTimeline.build(cues: [
+            ZoomCue(start: 1, end: 2, zoom: 2, anchorMode: .pinnedAnchor, skipsEasing: true)
+        ], capture: PointerCaptureFile(), clipTimeline: clips)
+        precondition(instant.frame(at: 1).magnification == 2 && instant.frame(at: 2.05).magnification == 1,
+                     "Instant zooms must snap in and out")
+
+        let mixed = followCues + [
+            ZoomCue(start: 5.2, end: 6, zoom: 4, anchorMode: .pinnedAnchor, pinnedPoint: CGPoint(x: 0, y: 1)),
+            ZoomCue(start: 6.1, end: 7.5, zoom: 3, anchorMode: .smartAnchor)
+        ]
+        let frames = samples(ViewportTimeline.build(cues: mixed, capture: capture, clipTimeline: clips))
+        precondition(frames.allSatisfy { frame in
+            let halfExtent = 1 / (2 * frame.magnification)
+            return frame.magnification >= 1
+                && frame.anchor.x - halfExtent >= -1e-9 && frame.anchor.x + halfExtent <= 1 + 1e-9
+                && frame.anchor.y - halfExtent >= -1e-9 && frame.anchor.y + halfExtent <= 1 + 1e-9
+        }, "Every sprung frame must stay inside the source")
+        precondition(frames == samples(ViewportTimeline.build(cues: mixed, capture: capture, clipTimeline: clips)))
+
+        let generated = ZoomCueSynthesizer.cues(from: PointerCaptureFile(presses: [
+            PointerPressEvent(time: 1, x: 0.4, y: 0.4, button: 0, phase: .down),
+            PointerPressEvent(time: 4, x: 0.6, y: 0.6, button: 0, phase: .down)
+        ]), duration: 10)
+        precondition(generated.count == 1 && generated[0].zoom == 2
+            && abs(generated[0].start - 0.7) < 1e-9 && abs(generated[0].end - 6.5) < 1e-9)
+        print("PASS Cap-style zoom: pre-aim, held zoom-out, stable Auto focus, instant snap, bounds, auto zoom")
+    }
+
     @MainActor static func checkVideoExports(movie: URL, directory: URL) async throws {
+        try await checkVideoFileSaving(movie: movie, directory: directory)
+        try await checkStudioSaveUpdatesSavedVideo(movie: movie, directory: directory)
+        checkZoomCamera()
         let clips = RecordingClipTimeline.full(sourceDuration: 2)
         let viewport = ViewportTimeline.build(
             cues: [
@@ -759,6 +820,85 @@ struct ExportIntegration {
 }
 
 @MainActor
+private func checkVideoFileSaving(movie: URL, directory: URL) async throws {
+    let destination = directory.appendingPathComponent("saved-video.mov")
+    let original = try Data(contentsOf: movie)
+    try original.write(to: destination)
+    for source in [directory.appendingPathComponent("missing.mov"), directory.appendingPathComponent("invalid.mp4")] {
+        if source.pathExtension == "mp4" { try Data("invalid movie".utf8).write(to: source) }
+        do {
+            try await VideoFileActions.save(from: source, to: destination)
+            preconditionFailure("Invalid video input must fail")
+        } catch {}
+        precondition((try? Data(contentsOf: destination)) == original,
+                     "Failed video copy/remux must preserve the previous export")
+    }
+    try await VideoFileActions.save(from: destination, to: destination)
+    precondition((try? Data(contentsOf: destination)) == original, "Saving onto the source must preserve it")
+
+    let oldDirectory = AppPreferences.saveDirectory
+    AppPreferences.saveDirectory = directory.path
+    defer { AppPreferences.saveDirectory = oldDirectory }
+    let first = Task { @MainActor in
+        try await VideoFileActions.saveToDefaultLocation(from: movie, suggestedFileName: "same-name.mp4")
+    }
+    let second = Task { @MainActor in
+        try await VideoFileActions.saveToDefaultLocation(from: movie, suggestedFileName: "same-name.mp4")
+    }
+    let outputs = try await [first.value, second.value]
+    precondition(outputs[0] != outputs[1], "Concurrent remuxes must not share a destination")
+    for output in outputs {
+        let duration = try await AVURLAsset(url: output).load(.duration).seconds
+        precondition(abs(duration - 2) < 0.04, "Each saved video must be complete")
+    }
+    let longName = String(repeating: "x", count: 200) + ".mov"
+    let longOutput = try await VideoFileActions.saveToDefaultLocation(from: movie, suggestedFileName: longName)
+    precondition(longOutput.lastPathComponent == longName, "Staging must allow full-length template names")
+    let leftovers = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+    precondition(!leftovers.contains { $0.hasPrefix(".BetterShot-") }, "Video saves must clean up staging files")
+    print("PASS video save failure preserves exports, same-file save, and concurrent remux naming")
+}
+
+@MainActor
+private func checkStudioSaveUpdatesSavedVideo(movie: URL, directory: URL) async throws {
+    let saveFolder = directory.appendingPathComponent("studio-save")
+    try FileManager.default.createDirectory(at: saveFolder, withIntermediateDirectories: true)
+    let oldDirectory = AppPreferences.saveDirectory
+    AppPreferences.saveDirectory = saveFolder.path
+    defer { AppPreferences.saveDirectory = oldDirectory }
+    func videoSize(_ url: URL) async throws -> CGSize {
+        try await AVURLAsset(url: url).loadTracks(withMediaType: .video)[0].load(.naturalSize)
+    }
+
+    let session = RecordingSession(directoryURL: directory.appendingPathComponent("StudioSave.bettershotrec"))
+    try FileManager.default.createDirectory(at: session.directoryURL, withIntermediateDirectories: true)
+    try FileManager.default.copyItem(at: movie, to: session.screenURL)
+    var manifest = CaptureManifest()
+    manifest.pointerSynthesized = true
+    try session.writeCaptureManifest(manifest)
+    try session.writePointerCapture(PointerCaptureFile(travel: [PointerTravelSample(time: 0, x: 0.5, y: 0.5)]))
+    let saved = try await RecordingDeliverable.saveToDefaultLocation(for: session.screenURL)
+    let before = try await videoSize(saved)
+    precondition(before.width != before.height, "The first save keeps the recording's wide frame")
+
+    let model = RecordingStudioModel(url: session.directoryURL)
+    await model.load()
+    defer { model.teardown() }
+    model.exportAspect = .square
+    model.saveProject()
+    precondition(model.exportState.isExporting, "Save re-renders the recording's saved file")
+    await model.waitForExport()
+    precondition(model.exportState == .finished(saved), "Save reports the file it updated, got \(model.exportState)")
+    let after = try await videoSize(saved)
+    precondition(after.width == after.height, "Studio Save must write its edits into the saved file, got \(after)")
+    let savedFiles = try FileManager.default.contentsOfDirectory(atPath: saveFolder.path).filter { !$0.hasPrefix(".") }
+    precondition(savedFiles == [saved.lastPathComponent], "Save replaces the saved file instead of adding a copy, got \(savedFiles)")
+    precondition(session.freshFinalURL(matching: session.effectiveEditDocument()) != nil,
+                 "Save leaves a render matching the saved edits in the package")
+    print("PASS Studio Save updates the recording's saved file in place")
+}
+
+@MainActor
 private func checkAnnotationExport(image: CGImage, source: URL, directory: URL) async throws {
     let history = HistoryStore(storageDirectory: directory.appendingPathComponent("annotation-history"))
     let record = history.importCapture(from: source, deleteSource: false)!
@@ -772,7 +912,7 @@ private func checkAnnotationExport(image: CGImage, source: URL, directory: URL) 
     precondition(history.annotationExportURL(for: output) == output)
     precondition(history.annotationExportURL(for: source) == nil)
     let edited = CaptureOrchestrator.saveImage(
-        image.cropping(to: CGRect(x: 0, y: 0, width: 32, height: 32))!, in: directory.path)!
+        image.cropping(to: CGRect(x: 0, y: 0, width: 32, height: 32))!, named: "edited.png", in: directory.path)!
     try ScreenshotFileActions.replaceExistingExport(from: edited, at: history.annotationExportURL(for: raw)!, compressionQuality: 0.9)
     let savedData = try Data(contentsOf: output)
     precondition(savedData != rawData)
@@ -797,9 +937,162 @@ private func checkAnnotationExport(image: CGImage, source: URL, directory: URL) 
     print("PASS annotation saves update the associated export and preserve the source and previous export on failure")
 }
 
+/// A capture is named from the template once, when it is taken. Copy, Save,
+/// and the editor keep that name even after the template changes, and the
+/// capture spends exactly one `{counter}` number.
+@MainActor
+private func checkCapturesKeepTheirName(
+    capture: (ShortcutService.Action) async throws -> URL,
+    savedFiles: () -> [URL]
+) async throws {
+    let templateKey = ScreenshotFileNaming.templateKey
+    let storedTemplate = UserDefaults.standard.string(forKey: templateKey)
+    let storedKeep = AppPreferences.keepInDeckUntilSaved
+    defer {
+        UserDefaults.standard.set(storedTemplate, forKey: templateKey)
+        AppPreferences.keepInDeckUntilSaved = storedKeep
+    }
+    func clipboardFileName() -> String? {
+        NSPasteboard.general.string(forType: .fileURL).flatMap(URL.init(string:))?.lastPathComponent
+    }
+
+    for keep in [false, true] {
+        AppPreferences.keepInDeckUntilSaved = keep
+        let born = "born-\(keep)-{counter:3}.release.0.5.7"
+        UserDefaults.standard.set(born, forKey: templateKey)
+        let counterBefore = ScreenshotFileNaming.counter()
+        let copied = try await capture(.region)
+        let toSave = try await capture(.region)
+        let edited = try await capture(.region)
+        precondition(ScreenshotFileNaming.counter() == counterBefore + 3,
+                     "Each capture spends one number when it is taken (keep: \(keep))")
+        let name = { (offset: Int) in
+            ScreenshotFileNaming.fileName(template: born, extension: "png",
+                                          context: .init(counter: counterBefore + offset))
+        }
+        UserDefaults.standard.set("later-{kind}", forKey: templateKey)
+
+        // Drag-out and the preview tooltip name the card, which may be a `.preview` companion.
+        precondition(ScreenshotFileActions.captureFileName(for: copied, extension: copied.pathExtension) == name(0),
+                     "A card resolves to its capture's name (keep: \(keep)), got \(copied.lastPathComponent)")
+        PreviewOverlay.shared.copy(copied)
+        precondition(clipboardFileName() == name(0),
+                     "Copy pastes the capture's own name (keep: \(keep)), got \(clipboardFileName() ?? "nil")")
+
+        PreviewOverlay.shared.save(toSave)
+        precondition(savedFiles().contains { $0.lastPathComponent == name(1) },
+                     "Save keeps the capture's name (keep: \(keep)), got \(savedFiles().map(\.lastPathComponent))")
+
+        let editorSource = ScreenshotHistoryStore.shared.annotationEditorURL(for: DeckStaging.retain(edited))
+        precondition(ScreenshotFileActions.exportFileName(for: editorSource) == name(2),
+                     "The editor names Save, Export, and Copy after the capture (keep: \(keep)), got \(ScreenshotFileActions.exportFileName(for: editorSource))")
+        precondition(ScreenshotFileNaming.counter() == counterBefore + 3, "Copy, Save, and editing spend no numbers")
+        PreviewOverlay.shared.clearAll()
+        await Task.yield()
+    }
+
+    let storedFormat = AppPreferences.exportFormat
+    AppPreferences.exportFormat = .jpeg
+    UserDefaults.standard.set("dragged", forKey: templateKey)
+    let jpeg = try await capture(.region)
+    AppPreferences.exportFormat = storedFormat
+    let dragged = DeckStaging.retain(jpeg)
+    let drag = try ScreenshotFileActions.dragItemProvider(for: dragged, of: jpeg)
+    let flavors = drag.registeredTypeIdentifiers
+    precondition(flavors.contains(UTType.fileURL.identifier) && !flavors.contains { UTType($0)?.conforms(to: .image) == true },
+                 "Any image-data flavor makes Finder drop a JPEG as name.jpg.jpeg, got \(flavors)")
+    let dropped: URL = try await withCheckedThrowingContinuation { continuation in
+        _ = drag.loadObject(ofClass: URL.self) { url, error in
+            continuation.resume(with: url.map(Result.success) ?? .failure(error ?? CocoaError(.fileReadUnknown)))
+        }
+    }
+    precondition(dropped.lastPathComponent == "dragged.jpg" && (try? Data(contentsOf: dropped)) == (try? Data(contentsOf: dragged)),
+                 "A JPEG card drags out as the capture's .jpg file, got \(dropped.lastPathComponent)")
+    PreviewOverlay.shared.clearAll()
+    await Task.yield()
+
+    // A template without tokens names every capture the same. Library storage
+    // numbers the files, but the capture's name stays the name it was given.
+    AppPreferences.keepInDeckUntilSaved = false
+    UserDefaults.standard.set("static", forKey: templateKey)
+    let storedLimit = AppPreferences.historyRetentionLimit
+    defer { AppPreferences.historyRetentionLimit = storedLimit }
+    let first = try await capture(.region)
+    let second = try await capture(.region)
+    precondition(!DeckStaging.isStaged(first) && !DeckStaging.isStaged(second), "Both captures reach the library")
+    PreviewOverlay.shared.copy(second)
+    precondition(clipboardFileName() == "static.png",
+                 "Storage numbering must not rename a capture, got \(clipboardFileName() ?? "nil")")
+    // Retention frees the first capture's name. Its preview companion goes with
+    // it, or the next capture that reuses the name can never be retained.
+    AppPreferences.historyRetentionLimit = 1
+    HistoryStore.shared.trimToRetentionLimit()
+    let afterTrim = try await capture(.region)
+    precondition(!DeckStaging.isStaged(afterTrim), "A capture reusing a trimmed name must still be retained")
+    PreviewOverlay.shared.clearAll()
+    await Task.yield()
+
+    // A capture whose staging fails still carries its name.
+    UserDefaults.standard.set("unrenderable", forKey: templateKey)
+    let broken = FileManager.default.temporaryDirectory.appendingPathComponent("broken-\(UUID().uuidString).png")
+    try Data("not an image".utf8).write(to: broken)
+    await CaptureOrchestrator.shared.processCapturedImage(broken, action: .region)
+    let unstaged = CaptureOrchestrator.shared.lastCaptureURL
+    precondition(unstaged?.lastPathComponent == "unrenderable.png",
+                 "A failed staging keeps the capture's name, got \(unstaged?.lastPathComponent ?? "nil")")
+    PreviewOverlay.shared.clearAll()
+    await Task.yield()
+
+    // Share uploads the file under the capture's name, whether or not it compresses.
+    let shareDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("share-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: shareDirectory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: shareDirectory) }
+    let preview = DeckStaging.retain(try await capture(.region))
+    let upload = await CloudUploader.prepareUpload(of: preview, named: "shared", into: shareDirectory)
+    precondition(upload.deletingPathExtension().lastPathComponent == "shared",
+                 "Share uploads under the capture's name, got \(upload.lastPathComponent)")
+    PreviewOverlay.shared.clearAll()
+    await Task.yield()
+    print("PASS captures keep the name they were given when taken, across Copy, Save, Share, retention, and the editor")
+}
+
+@MainActor
+private func checkScreenshotSavingDefaults() {
+    let suite = "BetterShotTests-screenshot-saving-defaults"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let key = AfterCaptureAction.save.storageKey(for: .screenshot)
+    func check(_ stored: [String: Any], isNewInstall: Bool, enabled: Bool) {
+        defaults.removePersistentDomain(forName: suite)
+        for (key, value) in stored { defaults.set(value, forKey: key) }
+        let fresh = OnboardingState.prepareForLaunch(defaults: defaults)
+        precondition(fresh == isNewInstall)
+        AfterCaptureActions.prepareForLaunch(isNewInstall: fresh, defaults: defaults)
+        precondition(AfterCaptureActions.isEnabled(.save, for: .screenshot, defaults: defaults) == enabled)
+        precondition(!AfterCaptureActions.isEnabled(.save, for: .recording, defaults: defaults),
+                     "Screenshot defaults must not enable recording exports")
+        AfterCaptureActions.prepareForLaunch(
+            isNewInstall: OnboardingState.prepareForLaunch(defaults: defaults), defaults: defaults)
+        precondition(defaults.bool(forKey: key) == enabled, "Relaunch must preserve the initialized choice")
+        defaults.set(!enabled, forKey: key)
+        AfterCaptureActions.prepareForLaunch(isNewInstall: false, defaults: defaults)
+        precondition(defaults.bool(forKey: key) == !enabled, "Later user choices must survive upgrades")
+    }
+    check([:], isNewInstall: true, enabled: true)
+    check([OnboardingState.seenVersionKey: 0], isNewInstall: false, enabled: false)
+    check([OnboardingState.seenVersionKey: 2], isNewInstall: false, enabled: false)
+    check(["bs_keepInDeckUntilSaved": true, BetterShotPreferences.autoSaveKey: true], isNewInstall: false, enabled: false)
+    for enabled in [false, true] {
+        check([OnboardingState.seenVersionKey: 2, key: enabled], isNewInstall: false, enabled: enabled)
+    }
+    precondition(AfterCaptureAction.save.defaultValue(for: .screenshot), "Restore Defaults enables screenshot saving")
+    print("PASS screenshot saving defaults: new installs, upgrades, unfinished setup, legacy keys, explicit choices, and relaunch")
+}
+
 /// Exercises production persistence in an isolated directory; never alters the user's captures.
 @MainActor
 private func checkScreenshotCopyAndSave(source: URL, directory: URL) async throws {
+    checkScreenshotSavingDefaults()
     let originalData = try Data(contentsOf: source)
     let saveFolder = directory.appendingPathComponent("explicit-saves")
     try FileManager.default.createDirectory(at: saveFolder, withIntermediateDirectories: true)
@@ -811,12 +1104,14 @@ private func checkScreenshotCopyAndSave(source: URL, directory: URL) async throw
     let autoSaveKey = AfterCaptureAction.save.storageKey(for: .screenshot)
     let oldAutoSave = UserDefaults.standard.object(forKey: autoSaveKey)
     let oldLegacyAutoSave = UserDefaults.standard.object(forKey: BetterShotPreferences.autoSaveKey)
+    let oldFileNameTemplate = UserDefaults.standard.object(forKey: ScreenshotFileNaming.templateKey)
     let oldHandler = PreviewPanelPresenter.shared.onAnnotate
     let oldRecords = Set(HistoryStore.shared.records.map(\.id))
     var editorURL: URL?
     PreviewPanelPresenter.shared.onAnnotate = { editorURL = ScreenshotHistoryStore.shared.annotationEditorURL(for: $0) }
     AppPreferences.saveDirectory = saveFolder.path
     AppPreferences.copyAfterSave = true
+    UserDefaults.standard.set("Saved-{kind}", forKey: ScreenshotFileNaming.templateKey)
     defer {
         PreviewOverlay.shared.clearAll()
         DeckStaging.purge()
@@ -830,13 +1125,15 @@ private func checkScreenshotCopyAndSave(source: URL, directory: URL) async throw
         AppPreferences.overlayDismissDelay = oldDismissDelay
         UserDefaults.standard.set(oldAutoSave, forKey: autoSaveKey)
         UserDefaults.standard.set(oldLegacyAutoSave, forKey: BetterShotPreferences.autoSaveKey)
+        UserDefaults.standard.set(oldFileNameTemplate, forKey: ScreenshotFileNaming.templateKey)
         PinnedScreenshotController.shared.unpinAll()
         PreviewPanelPresenter.shared.onAnnotate = oldHandler
     }
     UserDefaults.standard.removeObject(forKey: autoSaveKey)
     UserDefaults.standard.set(true, forKey: BetterShotPreferences.autoSaveKey)
+    AfterCaptureActions.prepareForLaunch(isNewInstall: false)
     precondition(!AfterCaptureActions.isEnabled(.save, for: .screenshot),
-                 "Fresh installs and dormant legacy auto-save values must not enable automatic exports")
+                 "Upgrades must keep automatic exports off even with a dormant legacy auto-save value")
     UserDefaults.standard.set(false, forKey: autoSaveKey)
     func capture(_ action: ShortcutService.Action = .region) async throws -> URL {
         let temporary = directory.appendingPathComponent("capture-\(UUID().uuidString).png")
@@ -851,10 +1148,11 @@ private func checkScreenshotCopyAndSave(source: URL, directory: URL) async throw
         AppPreferences.keepInDeckUntilSaved = keep
         for opensEditor in [false, true] {
             AppPreferences.openEditorAfterCapture = opensEditor
-            for action in [ShortcutService.Action.snapCapture, .region, .timedRegion, .fullscreen, .window, .previousRegion, .regionCopy, .regionEdit] {
+            for action in [ShortcutService.Action.snapCapture, .region, .timedRegion, .fullscreen, .window, .previousRegion, .scrollCapture, .regionCopy, .regionEdit] {
                 editorURL = nil
                 let staged = try await capture(action)
-                precondition(savedFiles().isEmpty, "Capture and opening the editor must never export automatically")
+                precondition(savedFiles().isEmpty,
+                             "Capture and opening the editor must never export automatically, found \(savedFiles().map(\.lastPathComponent)) after \(action)")
                 if let editorURL {
                     precondition((try? Data(contentsOf: editorURL)) == originalData, "The editor opens untouched source pixels")
                     precondition(HistoryStore.shared.annotationExportURL(for: editorURL) == nil)
@@ -867,9 +1165,10 @@ private func checkScreenshotCopyAndSave(source: URL, directory: URL) async throw
                     precondition(!DeckStaging.isStaged(clipboardURL)
                         && (try? Data(contentsOf: clipboardURL)) == previewData,
                         "Clipboard file pastes must survive dismissing the card")
+                    await Task.yield()
                     precondition(FileManager.default.fileExists(atPath: staged.path) != keep,
                                  "Normal captures stay available for Restore Last Capture; staged cards are discarded")
-                    try FileManager.default.removeItem(at: clipboardURL)
+                    try FileManager.default.removeItem(at: clipboardURL.deletingLastPathComponent())
                 }
                 PreviewOverlay.shared.clearAll()
                 precondition(savedFiles().isEmpty, "Deck Copy is clipboard-only")
@@ -891,6 +1190,7 @@ private func checkScreenshotCopyAndSave(source: URL, directory: URL) async throw
     precondition(saved.deletingLastPathComponent().resolvingSymlinksInPath().path == saveFolder.resolvingSymlinksInPath().path
                  && savedFiles().count == 1,
                  "Explicit editor Save expected \(saveFolder.path), got \(saved.path); files: \(savedFiles().map(\.lastPathComponent))")
+    precondition(saved.lastPathComponent == "Saved-Screenshot.png", "Explicit Save must use the file name template")
     let savedData = try Data(contentsOf: saved)
     let rendered = directory.appendingPathComponent("editor-render.png")
     var background = AnnotationBackgroundSettings()
@@ -910,8 +1210,10 @@ private func checkScreenshotCopyAndSave(source: URL, directory: URL) async throw
     let toSave = try await capture()
     PreviewOverlay.shared.save(toSave)
     precondition(savedFiles().count == 2 && !PreviewOverlay.shared.items.contains(toSave))
+    try await checkCapturesKeepTheirName(capture: capture, savedFiles: savedFiles)
+    let exportsBeforeCaptureAndSave = savedFiles().count
     _ = try await capture(.regionSave)
-    precondition(savedFiles().count == 3, "Capture-and-save remains an explicit Save action")
+    precondition(savedFiles().count == exportsBeforeCaptureAndSave + 1, "Capture-and-save remains an explicit Save action")
     let retry = try await capture()
     let blockedFolder = directory.appendingPathComponent("not-a-directory")
     try Data("block".utf8).write(to: blockedFolder)
@@ -921,21 +1223,50 @@ private func checkScreenshotCopyAndSave(source: URL, directory: URL) async throw
                  && FileManager.default.fileExists(atPath: retry.path), "Failed Save preserves the card for retry")
     AppPreferences.saveDirectory = saveFolder.path
     PreviewOverlay.shared.save(retry)
-    precondition(savedFiles().count == 4 && !PreviewOverlay.shared.items.contains(retry))
+    precondition(savedFiles().count == exportsBeforeCaptureAndSave + 2 && !PreviewOverlay.shared.items.contains(retry))
     print("PASS all screenshot capture modes, clipboard-only deck/editor Copy, private retention, explicit Save, and retry")
 
-    UserDefaults.standard.set(true, forKey: autoSaveKey)
     for keep in [false, true] {
         AppPreferences.keepInDeckUntilSaved = keep
+        AppPreferences.overlayDismissDelay = 0.05
+        let privateCapture = try await capture()
+        let panel = NSApp.windows.first { $0.identifier?.rawValue == "BetterShot.CaptureOverlay" && $0.isVisible }!
+        panel.setFrameOrigin(NSPoint(x: NSEvent.mouseLocation.x + 40, y: NSEvent.mouseLocation.y + 40))
+        try await Task.sleep(for: .milliseconds(250))
+        precondition(PreviewOverlay.shared.items.contains(privateCapture) == keep,
+                     "Only staged captures with Keep enabled bypass Hide After")
+        precondition(FileManager.default.fileExists(atPath: privateCapture.path))
+        PreviewOverlay.shared.clearAll()
+    }
+    UserDefaults.standard.removeObject(forKey: autoSaveKey)
+    AfterCaptureActions.prepareForLaunch(isNewInstall: true)
+    for keep in [false, true] {
+        AppPreferences.keepInDeckUntilSaved = keep
+        AppPreferences.openEditorAfterCapture = false
+        AppPreferences.overlayDismissDelay = 0.05
+        let automaticallySaved = try await capture()
+        // Keep the native panel visible, with the live pointer outside it.
+        let panel = NSApp.windows.first { $0.identifier?.rawValue == "BetterShot.CaptureOverlay" && $0.isVisible }!
+        panel.setFrameOrigin(NSPoint(x: NSEvent.mouseLocation.x + 40, y: NSEvent.mouseLocation.y + 40))
+        try await Task.sleep(for: .milliseconds(250))
+        precondition(!PreviewOverlay.shared.items.contains(automaticallySaved),
+                     "Saved previews must follow Hide After even when Keep is enabled")
+        precondition(FileManager.default.fileExists(atPath: automaticallySaved.path),
+                     "Dismissing an automatically saved preview must keep the exported file")
+        PreviewOverlay.shared.clearAll()
+        AppPreferences.overlayDismissDelay = oldDismissDelay
         for opensEditor in [false, true] {
             AppPreferences.openEditorAfterCapture = opensEditor
-            for action in [ShortcutService.Action.region, .fullscreen, .window, .previousRegion, .timedRegion] {
+            for action in [ShortcutService.Action.region, .fullscreen, .window, .previousRegion, .timedRegion, .scrollCapture] {
                 let before = savedFiles().count
                 editorURL = nil
                 let saved = try await capture(action)
                 precondition(savedFiles().count == before + 1
                     && saved.deletingLastPathComponent().standardizedFileURL == saveFolder.standardizedFileURL,
                     "Automatic saving creates exactly one export in the configured folder")
+                precondition(saved.lastPathComponent.hasPrefix("Saved-Screenshot")
+                    && !saved.lastPathComponent.contains(".preview."),
+                    "Automatic saving must use the file name template instead of the internal preview name")
                 let raw = ScreenshotHistoryStore.shared.annotationEditorURL(for: saved)
                 precondition((try? Data(contentsOf: raw)) == originalData && raw != saved)
                 precondition(HistoryStore.shared.annotationExportURL(for: raw) == saved,
@@ -986,6 +1317,7 @@ private func checkScreenshotCopyAndSave(source: URL, directory: URL) async throw
         PreviewOverlay.shared.save(failed)
         precondition(savedFiles().count == before + 1 && !PreviewOverlay.shared.items.contains(failed))
     }
+    AppPreferences.openEditorAfterCapture = true
     PreviewOverlay.shared.clearAll()
     DeckStaging.purge()
     try Data("block staging".utf8).write(to: DeckStaging.directory)
@@ -1003,7 +1335,7 @@ private func checkScreenshotCopyAndSave(source: URL, directory: URL) async throw
     let beforeDisable = savedFiles().count
     _ = try await capture()
     precondition(savedFiles().count == beforeDisable, "Turning auto-save off restores private capture behavior")
-    print("PASS opt-in screenshot auto-save, legacy preference isolation, all normal modes, shortcut overrides, source/export associations, and failure retry")
+    print("PASS screenshot auto-save default, private opt-out, persistent previews, shortcut overrides, source/export associations, and failure retry")
 }
 
 @MainActor
@@ -1014,6 +1346,12 @@ private func checkCaptureStorage(image: CGImage, source: URL, directory: URL) as
     precondition(first.filename != second.filename)
     precondition(history.importCapture(from: directory.appendingPathComponent("missing.png")) == nil)
     precondition(history.records.count == 2, "A failed import must not insert a capture")
+    for format in ["jpg", "heic"] {
+        let named = history.importCapture(from: source, named: "Capture.\(format)", deleteSource: false)!
+        precondition(named.displayName == "Capture.\(format)" && named.filename == "Capture.\(source.pathExtension)",
+                     "A \(format) capture keeps its name, while its source is stored in its own format; got \(named.displayName), \(named.filename)")
+        history.deleteRecord(named)
+    }
     let childDirectory = directory.appendingPathComponent("project")
     let siblingDirectory = directory.appendingPathComponent("project-copy")
     for folder in [childDirectory, siblingDirectory] {
@@ -1041,7 +1379,8 @@ private func checkCaptureStorage(image: CGImage, source: URL, directory: URL) as
     let outputs = try await withThrowingTaskGroup(of: URL.self) { group in
         for _ in 0..<24 {
             group.addTask {
-                guard let output = CaptureOrchestrator.saveImage(smallImage, in: directory.path) else {
+                // Every capture in the same second renders the same name.
+                guard let output = CaptureOrchestrator.saveImage(smallImage, named: "same-second.png", in: directory.path) else {
                     throw CocoaError(.fileWriteUnknown)
                 }
                 return output
@@ -1052,12 +1391,15 @@ private func checkCaptureStorage(image: CGImage, source: URL, directory: URL) as
         return urls
     }
     precondition(Set(outputs).count == 24, "Concurrent saves need unique destinations")
+    precondition(outputs.allSatisfy { $0.lastPathComponent.hasPrefix("same-second") },
+                 "Colliding captures keep their name and gain a number")
     for output in outputs {
         let imageSource = CGImageSourceCreateWithURL(output as CFURL, nil)!
         precondition(CGImageSourceCreateImageAtIndex(imageSource, 0, nil)?.width == 32)
     }
-    precondition(CaptureOrchestrator.saveImage(smallImage, in: directory.appendingPathComponent("missing").path) == nil)
+    precondition(CaptureOrchestrator.saveImage(smallImage, named: "missing.png",
+                                               in: directory.appendingPathComponent("missing").path) == nil)
     let leftovers = try FileManager.default.contentsOfDirectory(atPath: directory.path)
-    precondition(!leftovers.contains { $0.hasPrefix(".bettershot_") }, "Staging files must be cleaned up")
+    precondition(!leftovers.contains { $0.hasPrefix(".") }, "Staging files must be cleaned up")
     print("PASS capture collisions, failed saves/imports, deleted capture guard, path identity, and history persistence")
 }

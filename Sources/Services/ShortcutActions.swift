@@ -8,13 +8,13 @@ extension ShortcutService {
         let manager = ScreenRecordingManager.shared
         switch action {
         case .snapCapture, .region, .fullscreen, .window, .ocr, .ocrSingleLine, .colorPicker,
-             .timedRegion, .regionCopy, .regionSave, .regionEdit, .regionPin:
+             .timedRegion, .regionCopy, .regionSave, .regionEdit, .regionPin, .scrollCapture:
             await CaptureOrchestrator.shared.performCapture(action, on: screen)
         case .previousRegion:
             if AppPreferences.lastRegionRect != nil {
                 await CaptureOrchestrator.shared.captureLastRegion(on: screen)
             } else {
-                ToastWindow.shared.show(isError: true, title: "No previous region", message: "Choose a region in the capture bar first.", systemIcon: "rectangle.dashed", on: screen)
+                ToastWindow.shared.show(isError: true, title: "No previous region", message: "Select an area with the region shortcut first.", systemIcon: "rectangle.dashed", on: screen)
             }
         case .recording, .recordingOptions:
             RecordingBarPresenter.shared.showPicker(recordingOptions: action == .recordingOptions)
@@ -29,8 +29,7 @@ extension ShortcutService {
             if manager.state == .paused { manager.resumeRecording() }
             else if manager.state == .recording { manager.pauseRecording() }
         case .restartRecording, .discardRecording:
-            guard manager.state == .recording || manager.state == .paused else { return }
-            RecordingBarPresenter.shared.recordingConfirmation = action
+            RecordingBarPresenter.shared.confirmRecordingAction(action)
         case .mediaGallery:
             MediaGalleryWindowController.shared.open(on: screen)
         case .openSettings:
@@ -38,7 +37,9 @@ extension ShortcutService {
         case .restoreLastCapture, .pinLastCapture, .editClipboard:
             if action == .editClipboard {
                 do {
-                    if let url = try ClipboardImage.fileURL() {
+                    if let url = try ClipboardImage.fileURL(fileName: {
+                        ScreenshotFileNaming.currentFileName(extension: $0)
+                    }) {
                         PreviewPanelPresenter.shared.openEditor(for: url)
                         return
                     }

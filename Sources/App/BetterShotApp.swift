@@ -7,7 +7,8 @@ struct BetterShotApp: App {
 
     init() {
         if ProcessInfo.processInfo.environment["BETTERSHOT_TESTING"] != "1" {
-            OnboardingState.prepareForLaunch()
+            let isNewInstall = OnboardingState.prepareForLaunch()
+            AfterCaptureActions.prepareForLaunch(isNewInstall: isNewInstall)
             ReleaseNotes.prepareForLaunch(current: ReleaseNotesWindowController.currentVersion)
         }
     }
@@ -16,9 +17,15 @@ struct BetterShotApp: App {
         let _ = configureEditorPresentation()
 
         Settings {
-            PreferencesView()
+            EmptyView()
         }
-        .defaultLaunchBehavior(.suppressed)
+        .suppressedAtLaunch()
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { SettingsWindowController.shared.open() }
+                    .keyboardShortcut(",")
+            }
+        }
 
         WindowGroup("BetterShot Annotate", id: "ANNOTATION_EDITOR", for: URL.self) { value in
             AnnotationEditorWindow(url: value)
@@ -72,5 +79,15 @@ struct BetterShotApp: App {
                 }
             }
         }
+    }
+}
+
+private extension Scene {
+    /// Keeps this scene closed at launch, which macOS 15 and later otherwise open; earlier systems never do.
+    func suppressedAtLaunch() -> some Scene {
+        guard #available(macOS 15, *) else {
+            return SceneBuilder.buildOptional(SceneBuilder.buildLimitedAvailability(self))
+        }
+        return SceneBuilder.buildOptional(SceneBuilder.buildLimitedAvailability(defaultLaunchBehavior(.suppressed)))
     }
 }
