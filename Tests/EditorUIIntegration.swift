@@ -1564,6 +1564,7 @@ func checkSnapCapture() async throws {
                 modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
                 eventNumber: 3, clickCount: 1, pressure: 0)!)
             view.layoutSubtreeIfNeeded()
+            assertSnapPanelControlsFit(in: view)
             let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
             view.cacheDisplay(in: view.bounds, to: bitmap)
             try bitmap.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("selection.png"))
@@ -1591,6 +1592,26 @@ func checkSnapCapture() async throws {
         }
     }
     print("PASS Snap Capture overlay drag, tight content crop, Retina margins, Return, Escape, PNG roundtrip and light/dark snapshots")
+}
+
+/// The panel's hosting view is sized to its fitting size, so a native control wider
+/// than its proposal draws outside the panel material instead of shrinking.
+@MainActor
+private func assertSnapPanelControlsFit(in overlay: NSView) {
+    guard let host = overlay.subviews.first(where: { $0 is NSHostingView<SnapControlPanel> }) else {
+        preconditionFailure("Snap selection must show its parameter panel")
+    }
+    func controls(in view: NSView) -> [NSControl] {
+        view.subviews.flatMap { ($0 as? NSControl).map { [$0] } ?? controls(in: $0) }
+    }
+    let found = controls(in: host)
+    precondition(found.contains { $0 is NSSegmentedControl }, "Snap panel must use the native segmented control")
+    let content = host.bounds.insetBy(dx: 12, dy: 12)
+    for control in found {
+        let frame = control.convert(control.bounds, to: host)
+        precondition(content.insetBy(dx: -0.5, dy: -0.5).contains(frame),
+            "Snap panel control \(type(of: control)) \(frame) overflows the padded panel \(content)")
+    }
 }
 
 /// Displays production editor views and exercises AppKit events, not offscreen snapshots.

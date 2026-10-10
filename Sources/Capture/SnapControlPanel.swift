@@ -45,6 +45,10 @@ struct SnapControlPanel: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                // Regular-size segments are wider than the 300 pt panel's remaining
+                // row width and AppKit draws them past the panel instead of shrinking.
+                .controlSize(.small)
+                .frame(maxWidth: .infinity)
             }
             .help("Snap strength — Large snaps to fainter edges, Small only to crisp ones")
 
