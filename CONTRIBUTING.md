@@ -32,7 +32,9 @@ A useful bug report includes:
 
 ### Requirements
 
-- macOS 14 or later to run BetterShot. Development uses Xcode 26, below.
+- macOS 14 or later to run BetterShot. Microphone narration needs macOS 15, and
+  narration subtitles and teleprompter speech tracking need macOS 26. Gate those
+  APIs with `#available` and keep the macOS 14 fallbacks working.
 - Xcode 26 or later, including its command-line tools. Open Xcode once to finish
   setup and select it under **Xcode > Settings > Locations > Command Line Tools**.
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen), available through Homebrew.
@@ -185,18 +187,38 @@ check stitching and the compact capture controls in both appearances.
 Region screenshots use `RegionSelectionOverlay` with the previous area
 (`AppPreferences.lastRegionRect`) preselected, so Return captures it again, then
 reactivate the previously frontmost app before `screencapture -R` takes the shot.
+`AppPreferences.preselectPreviousRegion`, exposed as Start with the last area
+selected in Settings > Capture > Region, defaults on. Turning it off opens every
+use of the selector empty, including scrolling and recording areas, and still
+stores the chosen area for Capture Previous Region.
+`ScreenCapturePermission.isReadyToCapture` runs before every screenshot except
+the color picker, and before recording sources load. Once BetterShot has seen
+Screen Recording access, a later launch that preflights as denied, as a login
+item can before macOS applies the grant, offers a restart once instead of failing.
+It never runs at launch.
 OCR keeps macOS's native `/usr/sbin/screencapture -i` selector.
-Region screenshots always use BetterShot’s selector.
+Region screenshots can instead use macOS's native selector via
+`AppPreferences.nativeRegionSelector`, exposed as Use native macOS region selector
+in Settings > Capture > Region. It defaults off. `ScreenCapture.captureRegion`
+checks it first and reuses `interactiveShot(window: false, includeShadow: false)`
+without activating BetterShot, so open menus and popovers remain available for
+capture. It does not update the remembered rectangle; Capture Previous Region keeps
+the last area chosen with BetterShot's selector. Scrolling and recording area
+selection still use BetterShot's selector because they need the rectangle.
 `AppPreferences.captureRegionOnRelease`, exposed as Capture as soon as I let go
 in Settings > Capture > Region, chooses immediate capture on release or adjustment
-before confirmation. Both paths preserve the remembered rectangle.
+before confirmation in BetterShot's selector, which preserves the remembered
+rectangle on both paths. Native selection always captures on release, so the
+control is disabled there.
 `AppPreferences.freezeScreenDuringRegionCapture`, exposed as Freeze the screen
 while selecting, snapshots every display with `FrozenScreenCapture` before the
 selector appears. `RegionSelectionOverlay` shows each frame behind its selection
 view, and `FrozenScreenFrame` crops the confirmed area from that frame at native
 pixel size; never take a second shot after confirmation. It defaults off and
-applies only to region screenshots: the countdown runs first, and window, OCR,
-previous-region, scrolling, and recording captures stay live.
+applies only to region screenshots using BetterShot's selector: the countdown runs
+first, and native-selector, window, OCR, previous-region, scrolling, and recording
+captures stay live. The setting is disabled while native selection is on, and
+native mode must never snapshot displays.
 `Tests/FrozenScreenFrameCheck.swift` covers crop origins, scales, and PNG pixels.
 Window screenshots use `/usr/sbin/screencapture -i -w`, retaining cancellation,
 shadow options, native pixel dimensions, and private PNG staging.
@@ -292,6 +314,13 @@ item with a local source belongs in both locations. Preserve package-based
 resolution when recording exports move or disappear, native table sorting,
 single-click selection, double-click opening, and deletion confirmations.
 Gallery and Settings use resizable native navigation columns.
+
+`ShortcutRecorderField` uses a native search-field bezel, focus ring, and inline
+clear button. Recording suspends global shortcuts through the existing
+`ShortcutService` recording guard, commits through `validationError`, and cancels
+on focus/window loss. With `clearsOnDelete`, set for global-scope rows, unmodified
+Delete clears; editor-scope rows record it (`imageDelete` and `videoDelete` default
+to it), and modified Delete is always recordable.
 
 [ShortcutCatalog.swift](Sources/Services/ShortcutCatalog.swift) defines action IDs,
 groups, scopes, and defaults. Do not renumber persisted IDs. New actions start
@@ -414,7 +443,10 @@ This builds unsigned Debug in `.build-test` with testability enabled, runs
 [scripts/run-checks.sh](scripts/run-checks.sh), then
 [Tests/run-exports.sh](Tests/run-exports.sh). The runners set
 `BETTERSHOT_TESTING=1` so tests use isolated storage and do not access real R2
-Keychain credentials. The separate test build directory keeps unsigned tests from replacing
+Keychain credentials. `Tests/run-exports.sh` names each run's program
+`ExportIntegration-<pid>`, which gives its `UserDefaults.standard` a private
+domain that the runner deletes afterwards, so overlapping runs in other worktrees
+cannot rewrite its save folder or dismiss delay. The separate test build directory keeps unsigned tests from replacing
 a running signed dev app and invalidating its Screen Recording permission. Quit the dev
 app before rebuilding its `.build` bundle. Always use the runners; never substitute production
 credentials to make a test pass.

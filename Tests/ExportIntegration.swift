@@ -2,6 +2,7 @@ import AVFoundation
 import AppKit
 import CoreImage
 import ImageIO
+import SwiftUI
 import UniformTypeIdentifiers
 
 @testable import BetterShot
@@ -895,7 +896,24 @@ private func checkStudioSaveUpdatesSavedVideo(movie: URL, directory: URL) async 
     precondition(savedFiles == [saved.lastPathComponent], "Save replaces the saved file instead of adding a copy, got \(savedFiles)")
     precondition(session.freshFinalURL(matching: session.effectiveEditDocument()) != nil,
                  "Save leaves a render matching the saved edits in the package")
-    print("PASS Studio Save updates the recording's saved file in place")
+
+    let window = NSWindow(contentViewController: NSHostingController(
+        rootView: RecordingStudioContent(model: model).onDisappear { model.teardown() }))
+    window.isReleasedWhenClosed = false
+    defer { window.contentViewController = nil }
+    window.makeKeyAndOrderFront(nil)
+    try await Task.sleep(for: .seconds(1))
+    model.exportAspect = .wide16x9
+    model.saveProject()
+    window.performClose(nil)
+    precondition(window.isVisible, "Closing right after Save keeps the editor open until the saved file is updated")
+    for _ in 0..<300 where window.isVisible {
+        try await Task.sleep(for: .milliseconds(100))
+    }
+    precondition(!window.isVisible, "The editor closes once Save has updated the saved file")
+    let closed = try await videoSize(saved)
+    precondition(closed.width > closed.height, "Closing after Save must not cancel the update, got \(closed)")
+    print("PASS Studio Save updates the recording's saved file in place, even when the editor closes right away")
 }
 
 @MainActor
@@ -1231,7 +1249,7 @@ private func checkScreenshotCopyAndSave(source: URL, directory: URL) async throw
         AppPreferences.overlayDismissDelay = 0.05
         let privateCapture = try await capture()
         let panel = NSApp.windows.first { $0.identifier?.rawValue == "BetterShot.CaptureOverlay" && $0.isVisible }!
-        panel.setFrameOrigin(NSPoint(x: NSEvent.mouseLocation.x + 40, y: NSEvent.mouseLocation.y + 40))
+        panel.setFrameOrigin(overlayOriginAwayFromPointer(for: panel))
         try await Task.sleep(for: .milliseconds(250))
         precondition(PreviewOverlay.shared.items.contains(privateCapture) == keep,
                      "Only staged captures with Keep enabled bypass Hide After")
@@ -1247,7 +1265,7 @@ private func checkScreenshotCopyAndSave(source: URL, directory: URL) async throw
         let automaticallySaved = try await capture()
         // Keep the native panel visible, with the live pointer outside it.
         let panel = NSApp.windows.first { $0.identifier?.rawValue == "BetterShot.CaptureOverlay" && $0.isVisible }!
-        panel.setFrameOrigin(NSPoint(x: NSEvent.mouseLocation.x + 40, y: NSEvent.mouseLocation.y + 40))
+        panel.setFrameOrigin(overlayOriginAwayFromPointer(for: panel))
         try await Task.sleep(for: .milliseconds(250))
         precondition(!PreviewOverlay.shared.items.contains(automaticallySaved),
                      "Saved previews must follow Hide After even when Keep is enabled")

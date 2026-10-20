@@ -939,6 +939,24 @@ private func checkRecordingConfirmations() {
 /// Static layout checks need no camera/microphone access or encoded video fixture.
 @MainActor
 func checkCaptureControlsUI() throws {
+    let defaults = UserDefaults.standard
+    let selectorKey = AppPreferences.nativeRegionSelectorKey
+    let storedSelector = defaults.object(forKey: selectorKey)
+    defer { defaults.set(storedSelector, forKey: selectorKey) }
+    defaults.removeObject(forKey: selectorKey)
+    precondition(!AppPreferences.nativeRegionSelector, "Unset preferences keep the adjustable selector")
+    defaults.set(true, forKey: selectorKey)
+    precondition(AppPreferences.nativeRegionSelector, "Native selection must follow the persisted toggle")
+    defaults.set(false, forKey: selectorKey)
+    precondition(!AppPreferences.nativeRegionSelector, "Disabling native selection restores the adjustable selector")
+    let preselectKey = AppPreferences.preselectPreviousRegionKey
+    let storedPreselect = defaults.object(forKey: preselectKey)
+    defer { defaults.set(storedPreselect, forKey: preselectKey) }
+    defaults.removeObject(forKey: preselectKey)
+    precondition(AppPreferences.preselectPreviousRegion, "Unset preferences keep opening with the last area selected")
+    defaults.set(false, forKey: preselectKey)
+    precondition(!AppPreferences.preselectPreviousRegion, "Turning preselection off must persist")
+    defaults.removeObject(forKey: preselectKey)
     try checkScrollCaptureStitching()
     let sources = RecordingSourceCatalog.shared
     precondition(!sources.containsSelection(.fullscreen, displayID: nil, windowID: nil))
@@ -949,8 +967,11 @@ func checkCaptureControlsUI() throws {
     try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
     for scheme in [ColorScheme.light, .dark] {
         let name = scheme == .light ? "light" : "dark"
-        try snapshot(PreferencesView(selection: .capture), scheme: scheme, width: 780,
-                     to: output.appendingPathComponent("capture-settings-\(name).png"), height: 740)
+        for native in [false, true] {
+            defaults.set(native, forKey: selectorKey)
+            try snapshot(PreferencesView(selection: .capture), scheme: scheme, width: 780,
+                         to: output.appendingPathComponent("capture-settings-\(native ? "native" : "adjustable")-\(name).png"), height: 740)
+        }
         if ProcessInfo.processInfo.environment["BETTERSHOT_CHECK_CAPTURE_UI"] == "1" {
             try snapshot(MenuBarContentView(dismissPopover: {}), scheme: scheme, width: 296,
                          to: output.appendingPathComponent("capture-menu-\(name).png"), height: 540)
@@ -1699,6 +1720,15 @@ private final class ShortcutTestWindow: NSWindow {
     override var isKeyWindow: Bool { simulatesKeyWindow }
 }
 
+/// Returns the visible-frame corner farthest from the live pointer so hover cannot pause dismissal.
+@MainActor
+func overlayOriginAwayFromPointer(for panel: NSWindow) -> NSPoint {
+    let screen = (panel.screen ?? NSScreen.main)!.visibleFrame
+    let mouse = NSEvent.mouseLocation
+    return NSPoint(x: mouse.x < screen.midX ? screen.maxX - panel.frame.width : screen.minX,
+                   y: mouse.y < screen.midY ? screen.maxY - panel.frame.height : screen.minY)
+}
+
 @MainActor
 private func checkPreviewOverlay(imageURL: URL) async throws {
     let defaults = UserDefaults.standard
@@ -1763,9 +1793,11 @@ private func checkPreviewOverlay(imageURL: URL) async throws {
     overlay.show(url: imageURL)
     let livePanel = NSApp.windows.first { $0.identifier?.rawValue == "BetterShot.CaptureOverlay" && $0.isVisible }! as! NSPanel
     precondition(livePanel.becomesKeyOnlyIfNeeded, "Presenting a preview must not pull focus into it")
-    let mouse = NSEvent.mouseLocation
-    livePanel.setFrameOrigin(NSPoint(x: mouse.x - livePanel.frame.width / 2, y: mouse.y - livePanel.frame.height / 2))
-    try await Task.sleep(for: .milliseconds(350))
+    for _ in 0..<35 {
+        let mouse = NSEvent.mouseLocation
+        livePanel.setFrameOrigin(NSPoint(x: mouse.x - livePanel.frame.width / 2, y: mouse.y - livePanel.frame.height / 2))
+        try await Task.sleep(for: .milliseconds(10))
+    }
     precondition(overlay.items.contains(imageURL), "Live pointer over the panel pauses dismissal")
     let activationPolicy = NSApp.activationPolicy()
     defer { NSApp.setActivationPolicy(activationPolicy) }
@@ -1774,7 +1806,7 @@ private func checkPreviewOverlay(imageURL: URL) async throws {
     livePanel.makeKey()
     try await Task.sleep(for: .milliseconds(150))
     precondition(livePanel.isKeyWindow, "Focus test requires a key preview panel")
-    livePanel.setFrameOrigin(NSPoint(x: mouse.x + 40, y: mouse.y + 40))
+    livePanel.setFrameOrigin(overlayOriginAwayFromPointer(for: livePanel))
     overlay.setActionFocused(true, for: imageURL)
     try await Task.sleep(for: .milliseconds(350))
     precondition(overlay.items.contains(imageURL), "A focused tool keeps its card available")

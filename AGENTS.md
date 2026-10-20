@@ -98,16 +98,26 @@ a PR unless explicitly requested.
   `⌘⇧1` Capture Previous Region. `⌘⇧2` always opens the capture bar.
   Use `ShortcutService` as the source for UI labels and settings. Migrations must
   preserve customized bindings and disabled states.
-- Region screenshots use BetterShot's adjustable AppKit selector. Capture as soon
-  as I let go in Settings > Capture > Region chooses capture on mouse release
-  or adjustment before confirmation. Window screenshots use macOS's native window
-  selector. Recording areas use the adjustable AppKit selector
-  and system crosshair. It opens with the previous area selected, so Return captures
-  it again; its edges resize it, and a drag anywhere, even inside it, draws a new
-  area. OCR keeps macOS's native `screencapture` selector. Do not describe the
+- Region screenshots default to BetterShot's adjustable AppKit selector. Use native
+  macOS region selector in Settings > Capture > Region (off by default) routes
+  them through `screencapture -i` without activating BetterShot, so open menus and
+  popovers survive. Native selection always captures on release and shows the live
+  screen, so Capture as soon as I let go and Freeze the screen while selecting are
+  disabled there. It does not update the remembered rectangle; Capture Previous
+  Region keeps the last area chosen with BetterShot's selector, and scrolling
+  capture and recording areas still need it. With BetterShot's selector, Capture
+  as soon as I let go chooses capture on mouse release or adjustment before
+  confirmation. Window screenshots use macOS's native window selector. Recording
+  areas use the adjustable AppKit selector and system crosshair. By default it
+  opens with the previous area selected, so Return captures it again; Start with
+  the last area selected in Settings > Capture > Region turns that off for every
+  use of the selector without forgetting the area. Its edges resize it,
+  and a drag anywhere, even inside it, draws a new area. OCR keeps macOS's native `screencapture` selector. Do not describe the
   recording selector as Apple's system recording picker.
 - Preserve capture-window exclusion, correct display/coordinate conversion,
   cancellation, and focus restoration. Never start a recording after cancellation.
+  Check Screen Recording access at capture time through `ScreenCapturePermission`,
+  never at launch.
 - Keep untouched capture pixels and editable project sources. Full-resolution
   image previews are the default; an optional low-resolution preview must never
   become the source for saving, copying, or export. Keep screenshot framing aligned

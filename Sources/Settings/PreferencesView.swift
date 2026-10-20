@@ -876,6 +876,8 @@ struct CaptureSettingsTab: View {
     @AppStorage("bs_keepInDeckUntilSaved") private var keepInDeckUntilSaved = false
     @AppStorage("bs_captureRegionOnRelease") private var captureRegionOnRelease = false
     @AppStorage("bs_freezeScreenDuringRegionCapture") private var freezeScreenDuringRegionCapture = false
+    @AppStorage(AppPreferences.nativeRegionSelectorKey) private var nativeRegionSelector = false
+    @AppStorage(AppPreferences.preselectPreviousRegionKey) private var preselectPreviousRegion = true
     @State private var isConfirmingReset = false
 
     private var selfTimerDelay: Binding<SelfTimerDelay> {
@@ -901,6 +903,25 @@ struct CaptureSettingsTab: View {
         )
     }
 
+    private var captureOnReleaseCaption: String {
+        if nativeRegionSelector { return "The macOS selector always takes the shot when you release the mouse." }
+        return captureRegionOnRelease
+            ? "The shot is taken when you release the mouse."
+            : "The area stays up with handles to adjust it. Return or a double-click takes the shot."
+    }
+
+    private var freezeScreenCaption: String {
+        nativeRegionSelector
+            ? "The macOS selector captures the live screen, so a still frame is not available."
+            : "Select from a still frame to capture video, animations, and other moving content. Window, scrolling, and text capture stay live."
+    }
+
+    private var preselectCaption: String {
+        preselectPreviousRegion
+            ? "Return captures it again. Scrolling capture and recording areas open with it too."
+            : "Every selection starts empty. Capture Previous Region still uses your last area."
+    }
+
     var body: some View {
         SettingsPage {
             SettingsGroup("Timer") {
@@ -917,13 +938,16 @@ struct CaptureSettingsTab: View {
             }
 
             SettingsGroup("Region") {
-                SettingToggle("Capture as soon as I let go", caption: captureRegionOnRelease
-                    ? "The shot is taken when you release the mouse."
-                    : "The area stays up with handles to adjust it. Return or a double-click takes the shot.",
-                    isOn: $captureRegionOnRelease)
+                SettingToggle("Use native macOS region selector", caption: "Capture open menus and popovers without BetterShot taking focus first.",
+                    isOn: $nativeRegionSelector)
                 SettingsDivider()
-                SettingToggle("Freeze the screen while selecting", caption: "Select from a still frame to capture video, animations, and other moving content. Window, scrolling, and text capture stay live.",
-                    isOn: $freezeScreenDuringRegionCapture)
+                SettingToggle("Capture as soon as I let go", caption: captureOnReleaseCaption, isOn: $captureRegionOnRelease)
+                    .disabled(nativeRegionSelector)
+                SettingsDivider()
+                SettingToggle("Freeze the screen while selecting", caption: freezeScreenCaption, isOn: $freezeScreenDuringRegionCapture)
+                    .disabled(nativeRegionSelector)
+                SettingsDivider()
+                SettingToggle("Start with the last area selected", caption: preselectCaption, isOn: $preselectPreviousRegion)
                 SettingsDivider()
                 SettingRow("Show the selector on") {
                     Picker("Show the selector on", selection: $overlayFollowsMouse) {
@@ -955,7 +979,11 @@ struct CaptureSettingsTab: View {
                     }
                 }
             } footer: {
-                Text("Your last area opens already selected. Press Return to capture it again, drag its handles to adjust it, or draw a new one. Space switches to window selection, and Escape cancels.")
+                Text(nativeRegionSelector
+                    ? "Draw an area with the macOS crosshair and release to capture. Hold Space while dragging to move the area, or press Space before dragging to select a window. Escape cancels. Capture Previous Region keeps the last area chosen with BetterShot’s selector."
+                    : preselectPreviousRegion
+                        ? "Your last area opens already selected. Press Return to capture it again, drag its handles to adjust it, or draw a new one. Space switches to window selection, and Escape cancels."
+                        : "Draw an area, then press Return to capture it or drag its handles to adjust it. Space switches to window selection, and Escape cancels.")
             }
 
             SettingsGroup("After Capture") {
@@ -978,6 +1006,8 @@ struct CaptureSettingsTab: View {
                 keepInDeckUntilSaved = false
                 captureRegionOnRelease = false
                 freezeScreenDuringRegionCapture = false
+                nativeRegionSelector = false
+                preselectPreviousRegion = true
             }
             Button("Cancel", role: .cancel) {}
         }
@@ -1234,27 +1264,24 @@ struct ShortcutRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
                 Text(action.title).frame(maxWidth: .infinity, alignment: .leading)
-                if recordingAction == action {
-                    ShortcutRecorderView { keyCode, modifiers in
-                        persist(.init(keyCode: keyCode, modifiers: modifiers, enabled: true))
-                        recordingAction = nil
-                    } onCancel: {
-                        recordingAction = nil
+                ShortcutRecorderView(shortcut: shortcut, clearsOnDelete: action.scope == .global, isRecording: Binding(
+                    get: { recordingAction == action },
+                    set: { recording in
+                        if recording {
+                            errorMessage = nil
+                            recordingAction = action
+                        } else if recordingAction == action {
+                            recordingAction = nil
+                        }
                     }
-                    .frame(width: 124, height: 24)
-                    Button("Cancel") { recordingAction = nil }
-                } else {
-                    Button {
-                        errorMessage = nil
-                        recordingAction = action
-                    } label: {
-                        Text(shortcut?.displayString ?? "Record Shortcut")
-                            .font(.system(.callout, design: .monospaced))
-                            .foregroundStyle(shortcut?.enabled == false ? .secondary : .primary)
-                            .frame(minWidth: 110)
-                    }
-                    .accessibilityLabel("Record shortcut for \(action.title)")
-                    .accessibilityValue(shortcut?.accessibilityDescription ?? "Unassigned")
+                )) { keyCode, modifiers in
+                    persist(.init(keyCode: keyCode, modifiers: modifiers, enabled: true))
+                } onClear: {
+                    persist(.init(keyCode: .max, modifiers: 0, enabled: false))
+                }
+                .frame(width: 124, height: 24)
+                .accessibilityLabel("Record shortcut for \(action.title)")
+                if recordingAction != action {
                     Toggle("Enable \(action.title)", isOn: Binding(
                         get: { shortcut?.enabled ?? false },
                         set: { enabled in
@@ -1268,9 +1295,6 @@ struct ShortcutRow: View {
                     .controlSize(.small)
                     .disabled(shortcut == nil)
                     Menu {
-                        Button("Clear Shortcut") {
-                            persist(.init(keyCode: .max, modifiers: 0, enabled: false))
-                        }.disabled(shortcut == nil)
                         Button("Restore Default") {
                             if let fallback = action.defaultShortcut,
                                let error = service.validationError(for: fallback, action: action) {
@@ -1315,99 +1339,43 @@ struct ShortcutRow: View {
 // MARK: - Shortcut Recorder
 
 struct ShortcutRecorderView: NSViewRepresentable {
+    let shortcut: ShortcutService.Shortcut?
+    let clearsOnDelete: Bool
+    @Binding var isRecording: Bool
     let onRecord: (UInt32, UInt32) -> Void
-    let onCancel: () -> Void
+    let onClear: () -> Void
 
-    func makeNSView(context: Context) -> ShortcutRecorderNSView {
-        let view = ShortcutRecorderNSView()
-        view.onRecord = onRecord
-        view.onCancel = onCancel
-        ShortcutService.shared.beginRecordingShortcut()
-        DispatchQueue.main.async {
-            view.window?.makeFirstResponder(view)
-        }
+    func makeNSView(context: Context) -> ShortcutRecorderField {
+        let view = ShortcutRecorderField()
+        updateNSView(view, context: context)
         return view
     }
 
-    func updateNSView(_ nsView: ShortcutRecorderNSView, context: Context) {}
-
-    static func dismantleNSView(_ nsView: ShortcutRecorderNSView, coordinator: ()) {
-        nsView.removeMonitor()
-        ShortcutService.shared.endRecordingShortcut()
-    }
-}
-
-final class ShortcutRecorderNSView: NSView {
-    var onRecord: ((UInt32, UInt32) -> Void)?
-    var onCancel: (() -> Void)?
-    private var eventMonitor: Any?
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window != nil {
-            installMonitor()
+    func updateNSView(_ view: ShortcutRecorderField, context: Context) {
+        view.onRecord = { keyCode, modifiers in
+            onRecord(keyCode, ShortcutService.Shortcut.modifiers(from: modifiers))
         }
-    }
-
-    private func installMonitor() {
-        guard eventMonitor == nil else { return }
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, self.window?.isKeyWindow == true, self.window?.firstResponder === self else { return event }
-
-            let keyCode = UInt32(event.keyCode)
-
-            if keyCode == 53 {
-                self.onCancel?()
-                return nil
+        view.onClear = onClear
+        view.clearsOnDelete = clearsOnDelete
+        view.onRecordingChanged = { recording in
+            if recording {
+                ShortcutService.shared.beginRecordingShortcut()
+            } else {
+                ShortcutService.shared.endRecordingShortcut()
             }
-
-            let flags = event.modifierFlags
-            var carbonMods: UInt32 = 0
-            if flags.contains(.command) { carbonMods |= UInt32(cmdKey) }
-            if flags.contains(.shift) { carbonMods |= UInt32(shiftKey) }
-            if flags.contains(.option) { carbonMods |= UInt32(optionKey) }
-            if flags.contains(.control) { carbonMods |= UInt32(controlKey) }
-
-            if keyCode == UInt32(kVK_Tab) { self.onCancel?(); return event }
-            guard !event.isARepeat else { return nil }
-
-            self.onRecord?(keyCode, carbonMods)
-            return nil
+            isRecording = recording
+        }
+        view.shortcutDescription = shortcut?.accessibilityDescription ?? "Unassigned"
+        view.shortcutLabel = shortcut?.displayString
+        view.textColor = shortcut?.enabled == false ? .secondaryLabelColor : .labelColor
+        if view.isRecording && !isRecording {
+            view.cancelRecording()
         }
     }
 
-    func removeMonitor() {
-        if let monitor = eventMonitor {
-            NSEvent.removeMonitor(monitor)
-            eventMonitor = nil
-        }
+    static func dismantleNSView(_ view: ShortcutRecorderField, coordinator: ()) {
+        view.stopObserving()
     }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 4, yRadius: 4)
-        StudioChrome.accentNSColor.withAlphaComponent(0.15).setFill()
-        path.fill()
-        StudioChrome.accentNSColor.setStroke()
-        path.lineWidth = 1.5
-        path.stroke()
-
-        let text = "Press shortcut..." as NSString
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-            .foregroundColor: StudioChrome.accentNSColor,
-        ]
-        let size = text.size(withAttributes: attrs)
-        let point = NSPoint(
-            x: (bounds.width - size.width) / 2,
-            y: (bounds.height - size.height) / 2
-        )
-        text.draw(at: point, withAttributes: attrs)
-    }
-
-    override func keyDown(with event: NSEvent) {}
-    override func flagsChanged(with event: NSEvent) {}
 }
 
 // MARK: - About
